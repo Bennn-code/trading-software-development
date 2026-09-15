@@ -1,0 +1,22 @@
+import fs from 'node:fs';import ts from 'typescript';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
+const names=['trades','dashboard','periods','screenshot-import','verify-times'];
+for(const name of names){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;for(const dep of names)code=code.replaceAll(`"./${dep}"`,`"./${dep}.cjs"`);fs.writeFileSync(`work/${name}.cjs`,code);}
+const require=createRequire(new URL('../work/',import.meta.url)),{newTrade}=require('./trades.cjs'),{selectMarket,currencyForMarket,currencyGroups,dashboardStats,busiestDay,recordsForScope}=require('./dashboard.cjs'),{periodSummary}=require('./periods.cjs'),{verifyTimes}=require('./verify-times.cjs');
+const base={...newTrade(),entry:100,exit:110,quantity:1,multiplier:2,profitBasis:'net',entryTime:'2026-08-01T00:00'};
+const rows=[{...base,id:'a',exitTime:'2026-08-31T23:59',netOverride:100},{...base,id:'b',exitTime:'2026-09-01T23:59',netOverride:300},{...base,id:'c',exitTime:'2026-09-01T20:00',netOverride:-100},{...base,id:'d',market:'crypto',symbol:'BTCUSDT',currency:'USDT',exitTime:'2026-09-01T21:00',netOverride:500},{...base,id:'e',market:'crypto',symbol:'ETHUSDT',currency:'USDT',exitTime:'2026-09-06T23:59',netOverride:-200},{...base,id:'f',exitTime:'2026-09-07T00:00',netOverride:0}];
+assert.equal(currencyForMarket('all'),'all');assert.equal(currencyForMarket('futures'),'USD');assert.equal(currencyForMarket('crypto'),'USDT');
+assert.equal(selectMarket(rows,'all','all').length,6);assert.equal(selectMarket(rows,'futures','USD').length,4);assert.equal(selectMarket(rows,'crypto','USDT').length,2);
+const groups=currencyGroups(rows,'all');assert.deepEqual(groups.map(g=>[g.currency,dashboardStats(g.trades).net]),[['USD',300],['USDT',300]]);
+const monthly=recordsForScope(rows,{month:'2026-09'});assert.equal(monthly.length,5);assert.equal(recordsForScope(rows,{month:'2026-09',scope:'all'}).length,6);
+const week=recordsForScope(rows,{month:'2026-09',scope:'range',start:'2026-08-31',end:'2026-09-06'});assert.equal(week.length,5);assert.ok(week.some(t=>t.id==='a'));assert.ok(!week.some(t=>t.id==='f'));
+assert.equal(recordsForScope(rows,{month:'2026-09',scope:'range',start:'2026-09-01',end:'2026-09-01'}).length,3);
+const usd=dashboardStats(selectMarket(monthly,'all','USD'));assert.equal(usd.avgWin,300);assert.equal(usd.avgLoss,-100);assert.equal(usd.winLossRatio,3);assert.equal(usd.factor,3);assert.equal(usd.best.id,'b');assert.equal(usd.worst.id,'c');
+const busy=busiestDay(monthly);assert.equal(busy.date,'2026-09-01');assert.equal(busy.trades.length,3);assert.ok(busy.trades.some(t=>t.currency==='USDT'));
+assert.equal(busiestDay([]),null);assert.equal(dashboardStats([]).best,null);assert.equal(dashboardStats([]).winLossRatio,null);
+assert.equal(periodSummary(rows,'2026-09-01','all','USD').daily.count,2);assert.equal(periodSummary(rows,'2026-09-01','all','USDT').daily.count,1);
+const row={sourceLabel:'第8列',symbol:'EGLDUSDT',entry:20,exit:21,entryTime:'2026-09-15 23:00:00',exitTime:'2026-09-15 01:00:00',warnings:[]};
+let calls=0;const fake=(certain=true)=>async()=>{calls++;return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({trades:[{index:0,entryTime:'2026-09-15T23:00:00',exitTime:'2026-09-16T01:00:00',certain,evidence:'進場 2026-09-15 23:00；出場 2026-09-16 01:00'}]})}]}]}));};
+let result=await verifyTimes({rows:[row],key:'test',model:'test',dataUrl:'data:image/png;base64,AA==',offset:8,fetcher:fake()});assert.equal(result[0].exitTime,'2026-09-16T01:00:00');assert.equal(result[0].entryTime,'2026-09-15T23:00:00');assert.ok(result[0].warnings.length);
+result=await verifyTimes({rows:[row],key:'test',model:'test',dataUrl:'test',offset:8,fetcher:fake(false)});assert.equal(result[0].exitTime,row.exitTime,'uncertain evidence must not silently swap dates');
+const before=calls;await verifyTimes({rows:[{...row,exitTime:'2026-09-16T01:00:00'}],key:'test',model:'test',dataUrl:'test',offset:8,fetcher:fake()});assert.equal(calls,before,'valid ordered times need no extra AI call');
+console.log('Passed all-market/currency filters, separate currency totals, month/all/week/day drilldowns, averages/factor/extremes, busiest day, daily calendar counts and cautious timestamp recheck.');

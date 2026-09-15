@@ -4,6 +4,7 @@ import "./editor.css";
 import "./import.css";
 import "./periods.css";
 import "./reviews.css";
+import "./dashboard.css";
 
 export const metadata: Metadata = {
   title: "交易手記｜我的交易日誌",

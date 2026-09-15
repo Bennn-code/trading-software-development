@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useId, useState } from 'react';
+import DateTime24 from './date-time24';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,7 +26,7 @@ export default function TradeFields({trade:t,onChange,notes=true}:{trade:Trade;o
  <Choice label="交易方向" value={t.side} options={[["long","做多 Long"],["short","做空 Short"]]} onChange={v=>set('side',v as Trade['side'])}/>
  <Choice label="計價幣別" value={t.currency} options={[["USD","USD 美元"],["USDT","USDT"]]} onChange={v=>set('currency',v as Trade['currency'])}/>
  <div className="form-field wide"><label htmlFor={`${uid}-account`}>帳戶名稱</label><Input id={`${uid}-account`} required maxLength={80} value={t.account} onChange={e=>set('account',e.target.value)} placeholder="例如：Binance 主帳戶"/></div>
- {(['entryTime','exitTime'] as const).map((key,i)=><div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{i?'出場時間':'進場時間'}（台北）</label><Input id={`${uid}-${key}`} type="datetime-local" required value={t[key]} onChange={e=>set(key,e.target.value)}/></div>)}
+ {(['entryTime','exitTime'] as const).map((key,i)=><div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{i?'出場時間':'進場時間'}（台北）</label><DateTime24 id={`${uid}-${key}`} label={i?'出場':'進場'} value={t[key]} onChange={value=>set(key,value)}/></div>)}
  {numberField('entry','平均進場價')}{numberField('exit','平均出場價')}
  {t.market==='futures'?<>{numberField('quantity','口數')}{numberField('multiplier','每點乘數')}</>:<>
  <div className="form-field wide"><label htmlFor={`${uid}-value`}>進場倉位金額（{t.currency}）</label><Input id={`${uid}-value`} required type="number" min="0" step="any" value={positionValue(t)||''} placeholder="例如：1,000" onChange={e=>{const value=e.target.value===''?null:Number(e.target.value);onChange({...t,positionValue:value,quantity:value!=null&&t.entry>0?value/t.entry:0,multiplier:1});}}/></div>
