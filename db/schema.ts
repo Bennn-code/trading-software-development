@@ -8,7 +8,8 @@ export const images = sqliteTable('images', {
   id:text('id').primaryKey(), userId:text('user_id').notNull(),
   objectKey:text('object_key').notNull(), mime:text('mime').notNull(),
   filename:text('filename').notNull(), size:integer('size').notNull(),
-}, t=>[index('idx_images_user').on(t.userId)]);
+  digest:text('digest'), duplicateStep:integer('duplicate_step').notNull().default(0),
+}, t=>[index('idx_images_user').on(t.userId),index('idx_images_user_digest').on(t.userId,t.digest)]);
 export const reviews = sqliteTable('reviews', {
  userId:text('user_id').notNull(), kind:text('kind').notNull(), startDate:text('start_date').notNull(),
  payload:text('payload').notNull(), updatedAt:text('updated_at').notNull(),

@@ -19,15 +19,15 @@ export function tradeIssueMessage(issue:z.ZodIssue) {
  return `${name}：${issue.message}`;
 }
 const amount=z.number().finite().min(0).max(1e12);
-const time=z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,'請填寫完整日期與時間').refine(s=>{const d=new Date(s+'Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,16)===s;},'時間格式不正確');
+const time=z.string().refine(s=>{if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s))return false;const d=new Date(s+'Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,16)===s;},'請填寫完整且有效的日期與時間');
 export const tradeSchema=z.object({
  id:z.string().uuid(),market:z.enum(['futures','crypto']),symbol:z.string().trim().min(1).max(30),side:z.enum(['long','short']),
  account:z.string().trim().min(1).max(80),currency:z.enum(['USD','USDT']),entryTime:time,exitTime:time,
- entry:amount.positive(),exit:amount.positive(),quantity:amount.positive(),multiplier:amount.positive(),
- commission:z.number().finite().min(-1e12).max(1e12).optional(),fees:z.number().finite().min(-1e12).max(1e12),feeMode:z.enum(['paid','rebate']).optional(),funding:z.number().finite().min(-1e12).max(1e12),strategy:z.preprocess(v=>v??'',z.string().trim().max(80)),notes:z.string().max(10000),
+ entry:amount,exit:amount,quantity:amount,multiplier:amount,
+ commission:z.number().finite().min(-1e12).max(1e12).nullable().optional(),fees:z.number().finite().min(-1e12).max(1e12).nullable().optional(),feeMode:z.enum(['paid','rebate']).optional(),funding:z.number().finite().min(-1e12).max(1e12).nullable().optional(),strategy:z.preprocess(v=>v??'',z.string().trim().max(80)),notes:z.string().max(10000),
  imageId:z.string().uuid().nullable(),netOverride:z.number().finite().min(-1e15).max(1e15).nullable(),
  positionValue:amount.positive().nullable().optional(),leverage:z.number().finite().min(1).max(1000).nullable().optional(),
  marginMode:z.enum(['cross','isolated']).nullable().optional(),profitBasis:z.enum(['net','gross']).optional(),
-}).refine(t=>t.exitTime>=t.entryTime,{message:'出場時間不可早於進場時間',path:['exitTime']})
+}).superRefine((t,ctx)=>{if(t.netOverride===null){for(const field of ['entry','exit','quantity',...(t.market==='futures'?['multiplier']:[])] as const){if((t[field as 'entry']??0)<=0)ctx.addIssue({code:z.ZodIssueCode.custom,path:[field],message:'自動計算需要此欄位，或直接填寫帳單盈虧。'});}}}).refine(t=>t.exitTime>=t.entryTime,{message:'出場時間不可早於進場時間',path:['exitTime']})
 .refine(t=>t.market!=='futures'||Number.isInteger(t.quantity),{message:'期貨口數必須為整數',path:['quantity']})
-.transform(t=>({...t,commission:Math.abs(t.commission??0),feeMode:t.feeMode??'paid',fees:(t.feeMode==='rebate'?-1:1)*Math.abs(t.fees),...(t.market==='crypto'?{multiplier:1,quantity:t.positionValue!=null?t.positionValue/t.entry:t.quantity}:{})}));
+.transform(t=>({...t,commission:t.commission==null?null:Math.abs(t.commission),feeMode:t.feeMode??'paid',funding:t.funding??null,fees:t.fees==null?null:(t.feeMode==='rebate'?-1:1)*Math.abs(t.fees),...(t.market==='crypto'?{multiplier:1,quantity:t.positionValue!=null&&t.entry>0?t.positionValue/t.entry:t.quantity}:{})}));

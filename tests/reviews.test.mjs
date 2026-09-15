@@ -25,7 +25,7 @@ const candidate=normalizeRow(row,{id:crypto.randomUUID(),imageId:crypto.randomUU
 assert.equal(candidate.trade.netOverride,-322.5);assert.equal(candidate.trade.profitBasis,'gross');assert.equal(pnl(candidate.trade),-328.6);
 assert.ok(importBlockers([candidate])[0].includes('尚未勾選'));
 assert.deepEqual(importBlockers([{...candidate,confirmed:true}]),[]);
-assert.ok(importBlockers([{...candidate,confirmed:true,trade:{...candidate.trade,entry:0}}]).some(x=>x.includes('平均進場價')),'bulk confirmation cannot bypass field validation');
+assert.ok(importBlockers([{...candidate,confirmed:true,trade:{...candidate.trade,entry:-1}}]).some(x=>x.includes('平均進場價')),'bulk confirmation cannot bypass field validation');
 assert.deepEqual(importBlockers([{...candidate,confirmed:true},{...candidate,selected:false,trade:{...candidate.trade,entry:0}}]),[],'skipped invalid row does not block selected valid records');
 assert.ok(importBlockers([{...candidate,selected:false}])[0].includes('至少'));
 assert.deepEqual(reviewBounds('week','2027-01-01'),{start:'2026-12-28',end:'2027-01-03'});

@@ -21,7 +21,7 @@ export function reviewFacts(trades:Trade[]){
   const list=trades.filter(t=>t.currency===currency),wins=list.filter(t=>pnl(t)>0).length;
   const strategies=new Map<string,{count:number;netCents:number}>();
   for(const t of list){const name=t.strategy||'未分類',v=strategies.get(name)||{count:0,netCents:0};v.count++;v.netCents+=cents(pnl(t));strategies.set(name,v);}
-  return {currency,count:list.length,net:round(list.reduce((s,t)=>s+cents(pnl(t)),0)),wins,losses:list.filter(t=>pnl(t)<0).length,winRate:list.length?Math.round(wins/list.length*10000)/100:0,commission:round(list.reduce((s,t)=>s+cents(Math.abs(t.commission??0)),0)),fees:round(list.reduce((s,t)=>s+cents(feeCost(t)),0)),strategies:[...strategies].map(([strategy,v])=>({strategy,count:v.count,net:round(v.netCents)}))};
+  return {currency,unknownCostCount:list.filter(t=>t.commission==null||t.fees==null||(t.market==='crypto'&&t.funding==null)).length,count:list.length,net:round(list.reduce((s,t)=>s+cents(pnl(t)),0)),wins,losses:list.filter(t=>pnl(t)<0).length,winRate:list.length?Math.round(wins/list.length*10000)/100:0,commission:round(list.reduce((s,t)=>s+cents(Math.abs(t.commission??0)),0)),fees:round(list.reduce((s,t)=>s+cents(feeCost(t)),0)),strategies:[...strategies].map(([strategy,v])=>({strategy,count:v.count,net:round(v.netCents)}))};
  });
 }
 export async function reviewFingerprint(trades:Trade[],strategy:string,reflection:string){

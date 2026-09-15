@@ -15,6 +15,13 @@
       "when": 1789487858988,
       "tag": "0001_foamy_johnny_blaze",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789503964175,
+      "tag": "0002_medical_talisman",
+      "breakpoints": true
     }
   ]
 }

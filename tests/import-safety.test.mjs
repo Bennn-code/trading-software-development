@@ -1,0 +1,20 @@
+import fs from 'node:fs';import ts from 'typescript';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
+const require=createRequire(new URL('../work/',import.meta.url));
+for(const name of ['trades','screenshot-import','validation']){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
+const {normalizeTime,normalizeRow}=require('./screenshot-import.cjs'),{tradeSchema}=require('./validation.cjs'),{pnl}=require('./trades.cjs');
+assert.equal(normalizeTime('2026-08-25 13:47:50',8),'2026-08-25T13:47');
+assert.equal(normalizeTime('2026-08-25T13:47:50',0),'2026-08-25T21:47');
+assert.equal(normalizeTime('2026/8/25 9:47:50',8),'2026-08-25T09:47');
+assert.equal(normalizeTime('2026-02-30 13:47:50',8),'');
+const row={sourceLabel:'PROMUSDT 永續',symbol:'PROMUSDT',market:'futures',side:'long',currency:'USDT',entryTime:'2026-08-25 13:47:50',exitTime:'2026-08-30 09:41:43',entry:4.349,exit:6.208,quantity:null,multiplier:null,commission:null,commissionSource:null,fees:211.072,feeSource:null,funding:null,fundingSource:null,netProfit:63.0751,netProfitIsNet:false,strategy:null,entryFills:[],exitFills:[],completeFillHistory:false,warnings:[]};
+const ctx={id:crypto.randomUUID(),imageId:crypto.randomUUID(),account:'test',offset:8};
+const t=normalizeRow(row,ctx).trade;
+assert.equal(t.market,'crypto');assert.equal(t.multiplier,1);assert.equal(t.fees,null,'unlabeled notional is never a fee');assert.equal(t.funding,null);assert.equal(t.commission,null);assert.equal(t.quantity,0);assert.equal(t.positionValue,null);
+const saved=tradeSchema.parse(t);assert.equal(saved.fees,null);assert.equal(saved.commission,null);assert.equal(saved.funding,null);assert.equal(pnl(saved),63.08);
+assert.equal(tradeSchema.safeParse({...t,netOverride:null}).success,false,'unknown size requires stated profit');
+assert.equal(tradeSchema.safeParse({...t,quantity:-1}).success,false);
+assert.equal(tradeSchema.safeParse({...t,quantity:0,entry:0,positionValue:100}).success,true);assert.ok(Number.isFinite(tradeSchema.parse({...t,entry:0,positionValue:100}).quantity));
+const fee=normalizeRow({...row,fees:3.6,feeSource:'Fee: -3.60',commission:2.5,commissionSource:'Commission: -2.50',funding:null},ctx).trade;assert.equal(fee.fees,3.6);assert.equal(fee.commission,2.5);assert.equal(pnl({...fee,netOverride:-322.5}),-328.6);
+assert.equal(tradeSchema.parse({...t,fees:0}).fees,0,'explicit zero stays distinct from unknown');
+const invalidTime=tradeSchema.safeParse({...t,entryTime:''});assert.equal(invalidTime.success,false);assert.equal(invalidTime.error.issues.filter(x=>x.path[0]==='entryTime').length,1,'single actionable date error');
+console.log('Passed seconds/slash date parsing, crypto market correction, cost evidence, null costs, unknown size with explicit profit, negative validation, and no division by zero.');

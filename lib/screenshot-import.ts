@@ -6,24 +6,33 @@ const fill=z.object({price:z.number().finite().positive(),quantity:z.number().fi
 export const extractedRowSchema=z.object({
  sourceLabel:z.string().max(200),symbol:text,market:z.enum(['futures','crypto']).nullable(),side:z.enum(['long','short']).nullable(),
  currency:z.enum(['USD','USDT']).nullable(),entryTime:text,exitTime:text,entry:number,exit:number,quantity:number,multiplier:number,
- commission:number.optional(),fees:number,feeMode:z.enum(['paid','rebate']).nullable().optional(),funding:number,netProfit:number,netProfitIsNet:z.boolean(),strategy:text,
+ commission:number.optional(),commissionSource:text.optional(),feeSource:text.optional(),fundingSource:text.optional(),positionValue:number.optional(),fees:number,feeMode:z.enum(['paid','rebate']).nullable().optional(),funding:number,netProfit:number,netProfitIsNet:z.boolean(),strategy:text,
  entryFills:z.array(fill).max(100),exitFills:z.array(fill).max(100),completeFillHistory:z.boolean(),
  warnings:z.array(z.string().max(500)).max(30),
 });
 export const extractionSchema=z.object({trades:z.array(extractedRowSchema).max(50),warnings:z.array(z.string().max(500)).max(30)});
 export type ExtractedRow=z.infer<typeof extractedRowSchema>;
-export type ImportCandidate={trade:Trade;warnings:string[];sourceLabel:string;entryBasis:string;exitBasis:string;selected:boolean;confirmed:boolean};
+export type ImportCandidate={trade:Trade;warnings:string[];sourceLabel:string;entryBasis:string;exitBasis:string;selected:boolean;confirmed:boolean;costSources?:string[]};
 const nullable=(type:string)=>({type:[type,'null']});
 const fillJson={type:'object',properties:{price:{type:'number'},quantity:{type:'number'}},required:['price','quantity'],additionalProperties:false};
 const properties={
  sourceLabel:{type:'string'},symbol:nullable('string'),market:{type:['string','null'],enum:['futures','crypto',null]},side:{type:['string','null'],enum:['long','short',null]},currency:{type:['string','null'],enum:['USD','USDT',null]},
- entryTime:nullable('string'),exitTime:nullable('string'),entry:nullable('number'),exit:nullable('number'),quantity:nullable('number'),multiplier:nullable('number'),commission:nullable('number'),fees:nullable('number'),feeMode:{type:['string','null'],enum:['paid','rebate',null]},funding:nullable('number'),netProfit:nullable('number'),netProfitIsNet:{type:'boolean'},strategy:nullable('string'),
+ entryTime:nullable('string'),exitTime:nullable('string'),entry:nullable('number'),exit:nullable('number'),quantity:nullable('number'),multiplier:nullable('number'),commission:nullable('number'),commissionSource:nullable('string'),feeSource:nullable('string'),fundingSource:nullable('string'),positionValue:nullable('number'),fees:nullable('number'),feeMode:{type:['string','null'],enum:['paid','rebate',null]},funding:nullable('number'),netProfit:nullable('number'),netProfitIsNet:{type:'boolean'},strategy:nullable('string'),
  entryFills:{type:'array',items:fillJson},exitFills:{type:'array',items:fillJson},completeFillHistory:{type:'boolean'},warnings:{type:'array',items:{type:'string'}},
 };
 export const extractionJsonSchema={type:'object',properties:{trades:{type:'array',items:{type:'object',properties,required:Object.keys(properties),additionalProperties:false}},warnings:{type:'array',items:{type:'string'}}},required:['trades','warnings'],additionalProperties:false};
 export function weightedPrice(fills:{price:number;quantity:number}[]){const qty=fills.reduce((s,f)=>s+f.quantity,0);return qty>0?fills.reduce((s,f)=>s+f.price*f.quantity,0)/qty:null;}
-export function normalizeTime(value:string|null,offset:number){if(!value||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value))return '';const stamp=Date.parse(value+'Z');if(!Number.isFinite(stamp)||new Date(stamp).toISOString().slice(0,16)!==value)return '';return new Date(stamp+(8-offset)*3600000).toISOString().slice(0,16);}
+export function normalizeTime(value:string|null,offset:number){
+ if(!value)return '';
+ const match=value.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+ if(!match)return '';
+ const [,y,m,d,h,min,sec='00']=match,canonical=y+'-'+m.padStart(2,'0')+'-'+d.padStart(2,'0')+'T'+h.padStart(2,'0')+':'+min+':'+sec;
+ const stamp=Date.parse(canonical+'Z');if(!Number.isFinite(stamp)||new Date(stamp).toISOString().slice(0,19)!==canonical)return '';
+ return new Date(stamp+(8-offset)*3600000).toISOString().slice(0,16);
+}
 export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;account:string;offset:number}):ImportCandidate{
+ row={...row};
+ for(const [field,source,label] of [['commission','commissionSource',/commission|佣金|傭金/i],['fees','feeSource',/fee|手續費|手续费|費用|费用|返佣/i],['funding','fundingSource',/funding|資金費|资金费/i]] as const){if(source in row&&!label.test(row[source]??'')){row[field]=null;row[source]=null;}}
  const warnings=[...row.warnings];
  const entryQty=row.entryFills.reduce((s,f)=>s+f.quantity,0),exitQty=row.exitFills.reduce((s,f)=>s+f.quantity,0);
  const balanced=entryQty>0&&Math.abs(entryQty-exitQty)<Math.max(1e-9,entryQty*1e-8);
@@ -33,16 +42,17 @@ export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;
  if(!row.market)warnings.push('市場未能辨識，請確認市場類型。');
  if(!row.side)warnings.push('多空方向未能辨識，請確認。');
  if(!row.currency)warnings.push('計價幣別未能辨識，請確認。');
- if(row.fees===null)warnings.push('截圖未顯示手續費，目前暫填 0。');
+
  if(row.fees!==null&&row.fees<0&&!row.feeMode)warnings.push('手續費以負數列示，暫按支付費用處理；若是收到返佣，請修改手續費方向後再核對。');
- if(row.funding===null&&row.market==='crypto')warnings.push('截圖未顯示資金費，目前暫填 0。');
+
  if((row.entryFills.length||row.exitFills.length)&&!canAverage&&(row.entry===null||row.exit===null))warnings.push('成交明細不完整或進出數量不同，不能可靠計算加權均價，請補齊。');
  const symbol=(row.symbol??'').trim().toUpperCase();
  const futuresRoot=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(s=>symbol===s||new RegExp('^'+s+'[FGHJKMNQUVXZ]\\d{1,4}$').test(symbol));
- const multiplier=row.market==='crypto'?1:row.multiplier??(futuresRoot?multipliers[futuresRoot]:0);
+ const market=/USDT(?:$|[^A-Z])|永續/i.test(symbol)?'crypto':row.market??'futures';
+ const multiplier=market==='crypto'?1:row.multiplier??(futuresRoot?multipliers[futuresRoot]:0);
  if(row.market==='crypto'&&row.multiplier!==null&&row.multiplier!==1)warnings.push('此商品的合約乘數不是 1；請改用帳單淨損益，並確認金額與幣別。');
- if(row.commission===null)warnings.push('截圖未顯示獨立佣金 Commission，暫填 0；若手續費為合計，勿重複填寫。');
- const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market:row.market??'futures',side:row.side??'long',currency:row.currency??(row.market==='crypto'?'USDT':'USD'),entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,commission:Math.abs(row.commission??0),fees:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees??0),feeMode:row.feeMode??'paid',funding:row.funding??0,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
- return {trade,warnings:[...new Set(warnings)],sourceLabel:row.sourceLabel,entryBasis:row.entry!==null?'由截圖直接辨識':entry!==null?'由完整成交明細加權計算':'未能辨識，請補填',exitBasis:row.exit!==null?'由截圖直接辨識':exit!==null?'由完整成交明細加權計算':'未能辨識，請補填',selected:true,confirmed:false};
+
+ const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market,side:row.side??'long',currency:row.currency??(row.market==='crypto'?'USDT':'USD'),entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,positionValue:row.positionValue??null,commission:row.commission==null?null:Math.abs(row.commission),fees:row.fees==null?null:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees),feeMode:row.feeMode??'paid',funding:row.funding??null,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
+ return {trade,costSources:[row.commissionSource,row.feeSource,row.fundingSource].filter((s):s is string=>!!s),warnings:[...new Set(warnings)],sourceLabel:row.sourceLabel,entryBasis:row.entry!==null?'由截圖直接辨識':entry!==null?'由完整成交明細加權計算':'未能辨識，請補填',exitBasis:row.exit!==null?'由截圖直接辨識':exit!==null?'由完整成交明細加權計算':'未能辨識，請補填',selected:true,confirmed:false};
 }
 export async function stableImportId(owner:string,digest:string,index:number){const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${owner}:${digest}:${index}`));const hex=Array.from(new Uint8Array(bytes)).map(b=>b.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-5${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;}
