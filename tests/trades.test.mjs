@@ -6,7 +6,7 @@ fs.mkdirSync('work',{recursive:true});
 const require=createRequire(new URL('../work/',import.meta.url));
 for(const name of ['trades','validation','screenshot-import','vision']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
 const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade}=require('./trades.cjs');
-const {tradeSchema}=require('./validation.cjs');
+const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
 const {extractScreenshot}=require('./vision.cjs');
 const t={...newTrade(),market:'crypto',symbol:'BTCUSDT',currency:'USDT',entry:100,exit:110,quantity:10,multiplier:1,positionValue:1000,leverage:10,marginMode:'isolated',fees:2,funding:3};
@@ -43,3 +43,16 @@ let requested;
 const extracted=await extractScreenshot({key:'test-only',model:'test-model',dataUrl:'data:image/png;base64,AA==',fetcher:async(url,init)=>{requested=JSON.parse(init.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({trades:[row,{...row,sourceLabel:'第2筆',symbol:'ES',entry:200,exit:190,side:'short'}],warnings:[]})}]}]}),{status:200});}});
 assert.equal(extracted.trades.length,2);assert.equal(extracted.trades[1].entry,200);assert.equal(requested.text.format.strict,true);assert.equal(requested.store,false);
 console.log('Passed calculation, signed P&L, legacy compatibility, optional strategy, weighted averages, incomplete fills, idempotent IDs and mocked multi-row extraction checks. No live AI call made.');
+
+// Exchange ledger debit signs must not make fees unsavable or turn costs into gains.
+assert.equal(tradeSchema.parse({...t,fees:-2}).fees,2);
+assert.equal(pnl({...t,fees:-2}),95);
+assert.equal(pnl({...t,fees:2,feeMode:'rebate'}),99);
+assert.equal(pnl({...t,fees:-2,feeMode:'rebate'}),99);
+assert.equal(tradeSchema.parse({...t,fees:2,feeMode:'rebate'}).fees,-2);
+assert.equal(pnl({...t,fees:-2,feeMode:'rebate',netOverride:-1000}),-1000);
+const negativeFee=normalizeRow({...row,fees:-2.4,feeMode:'paid'},ctx);assert.equal(negativeFee.trade.fees,2.4);assert.ok(tradeSchema.safeParse(negativeFee.trade).success);
+const rebate=normalizeRow({...row,fees:2.4,feeMode:'rebate'},ctx);assert.equal(rebate.trade.fees,-2.4);assert.ok(tradeSchema.safeParse(rebate.trade).success);
+const ambiguousFee=normalizeRow({...row,fees:-2.4,feeMode:null},ctx);assert.equal(ambiguousFee.trade.fees,2.4);assert.ok(ambiguousFee.warnings.some(s=>s.includes('手續費')));
+for(const key of ['entry','exit','quantity','multiplier','positionValue']){const invalid=tradeSchema.safeParse({...t,[key]:-1});assert.equal(invalid.success,false);const message=tradeIssueMessage(invalid.error.issues[0]);assert.ok(!message.includes('Number must'));assert.ok(message.includes('必須'));}
+console.log('Passed negative paid fees, explicit rebates, net profit preservation and named Chinese validation errors.');

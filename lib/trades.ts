@@ -6,6 +6,7 @@ export type Trade = {
   netOverride: number | null;
   positionValue?: number | null; leverage?: number | null;
   marginMode?: 'cross' | 'isolated' | null; profitBasis?: 'net' | 'gross';
+  feeMode?: 'paid' | 'rebate';
 };
 export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5, YM:5, MYM:0.5, RTY:50, M2K:5, CL:1000, MCL:100, GC:100, MGC:10 };
 export const marketName = (v:string) => v==='futures'?'美國期貨':'加密貨幣';
@@ -13,7 +14,8 @@ export function parseSignedAmount(text:string):number|null { const value=text.tr
 export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.quantity; }
 export function initialMargin(t:Trade) { return t.market==='crypto'&&t.leverage&&t.leverage>0 ? positionValue(t)/t.leverage : null; }
 export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(t.market==='crypto'?1:t.multiplier); }
-export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-t.fees-t.funding)*100)/100; }
+export function feeCost(t:Trade) { return (t.feeMode==='rebate'?-1:1)*Math.abs(t.fees); }
+export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-feeCost(t)-t.funding)*100)/100; }
 export function stats(trades:Trade[]) {
   const values=trades.map(pnl); const wins=values.filter(v=>v>0), losses=values.filter(v=>v<0);
   return { net:values.reduce((s,v)=>s+v,0), count:values.length, winRate:values.length?wins.length/values.length*100:0,
