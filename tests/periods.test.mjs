@@ -13,7 +13,7 @@ assert.deepEqual(weekBounds('2026-09-07'),{start:'2026-09-07',end:'2026-09-13'})
 assert.deepEqual(weekBounds('2027-01-01'),{start:'2026-12-28',end:'2027-01-03'});
 assert.throws(()=>weekBounds('2026-02-30'));
 assert.equal(localTime(new Date('2026-08-31T16:00:00Z')).slice(0,10),'2026-09-01');
-const base={...newTrade(),entry:100,exit:110,quantity:1,multiplier:2,fees:2,funding:0};
+const base={...newTrade(),profitBasis:'net',entry:100,exit:110,quantity:1,multiplier:2,fees:2,funding:0};
 const trades=[
  {...base,exitTime:'2026-08-30T23:59',netOverride:999},
  {...base,exitTime:'2026-08-31T00:00',netOverride:100},

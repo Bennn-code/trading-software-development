@@ -1,5 +1,5 @@
 import { z } from 'zod';
-const fieldNames:Record<string,string>={id:'交易識別碼',market:'市場',symbol:'商品代號',side:'交易方向',account:'帳戶名稱',currency:'計價幣別',entryTime:'進場時間',exitTime:'出場時間',entry:'平均進場價',exit:'平均出場價',quantity:'交易數量／口數',multiplier:'每點乘數',fees:'手續費金額',feeMode:'手續費方向',funding:'資金費',strategy:'交易策略',notes:'交易心得',imageId:'交易截圖',netOverride:'盈虧',positionValue:'進場倉位金額',leverage:'槓桿倍數',marginMode:'保證金模式',profitBasis:'盈虧口徑'};
+const fieldNames:Record<string,string>={id:'交易識別碼',market:'市場',symbol:'商品代號',side:'交易方向',account:'帳戶名稱',currency:'計價幣別',entryTime:'進場時間',exitTime:'出場時間',entry:'平均進場價',exit:'平均出場價',quantity:'交易數量／口數',multiplier:'每點乘數',commission:'佣金 Commission',fees:'其他交易費 Fee',feeMode:'手續費方向',funding:'資金費',strategy:'交易策略',notes:'交易心得',imageId:'交易截圖',netOverride:'盈虧',positionValue:'進場倉位金額',leverage:'槓桿倍數',marginMode:'保證金模式',profitBasis:'盈虧口徑'};
 export function tradeIssueMessage(issue:z.ZodIssue) {
  const field=[...issue.path].reverse().find(p=>typeof p==='string'&&fieldNames[p]);
  const name=typeof field==='string'?fieldNames[field]:'交易資料';
@@ -24,10 +24,10 @@ export const tradeSchema=z.object({
  id:z.string().uuid(),market:z.enum(['futures','crypto']),symbol:z.string().trim().min(1).max(30),side:z.enum(['long','short']),
  account:z.string().trim().min(1).max(80),currency:z.enum(['USD','USDT']),entryTime:time,exitTime:time,
  entry:amount.positive(),exit:amount.positive(),quantity:amount.positive(),multiplier:amount.positive(),
- fees:z.number().finite().min(-1e12).max(1e12),feeMode:z.enum(['paid','rebate']).optional(),funding:z.number().finite().min(-1e12).max(1e12),strategy:z.preprocess(v=>v??'',z.string().trim().max(80)),notes:z.string().max(10000),
+ commission:z.number().finite().min(-1e12).max(1e12).optional(),fees:z.number().finite().min(-1e12).max(1e12),feeMode:z.enum(['paid','rebate']).optional(),funding:z.number().finite().min(-1e12).max(1e12),strategy:z.preprocess(v=>v??'',z.string().trim().max(80)),notes:z.string().max(10000),
  imageId:z.string().uuid().nullable(),netOverride:z.number().finite().min(-1e15).max(1e15).nullable(),
  positionValue:amount.positive().nullable().optional(),leverage:z.number().finite().min(1).max(1000).nullable().optional(),
  marginMode:z.enum(['cross','isolated']).nullable().optional(),profitBasis:z.enum(['net','gross']).optional(),
 }).refine(t=>t.exitTime>=t.entryTime,{message:'出場時間不可早於進場時間',path:['exitTime']})
 .refine(t=>t.market!=='futures'||Number.isInteger(t.quantity),{message:'期貨口數必須為整數',path:['quantity']})
-.transform(t=>({...t,feeMode:t.feeMode??'paid',fees:(t.feeMode==='rebate'?-1:1)*Math.abs(t.fees),...(t.market==='crypto'?{multiplier:1,quantity:t.positionValue!=null?t.positionValue/t.entry:t.quantity}:{})}));
+.transform(t=>({...t,commission:Math.abs(t.commission??0),feeMode:t.feeMode??'paid',fees:(t.feeMode==='rebate'?-1:1)*Math.abs(t.fees),...(t.market==='crypto'?{multiplier:1,quantity:t.positionValue!=null?t.positionValue/t.entry:t.quantity}:{})}));

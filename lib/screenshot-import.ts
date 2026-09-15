@@ -6,7 +6,7 @@ const fill=z.object({price:z.number().finite().positive(),quantity:z.number().fi
 export const extractedRowSchema=z.object({
  sourceLabel:z.string().max(200),symbol:text,market:z.enum(['futures','crypto']).nullable(),side:z.enum(['long','short']).nullable(),
  currency:z.enum(['USD','USDT']).nullable(),entryTime:text,exitTime:text,entry:number,exit:number,quantity:number,multiplier:number,
- fees:number,feeMode:z.enum(['paid','rebate']).nullable().optional(),funding:number,netProfit:number,netProfitIsNet:z.boolean(),strategy:text,
+ commission:number.optional(),fees:number,feeMode:z.enum(['paid','rebate']).nullable().optional(),funding:number,netProfit:number,netProfitIsNet:z.boolean(),strategy:text,
  entryFills:z.array(fill).max(100),exitFills:z.array(fill).max(100),completeFillHistory:z.boolean(),
  warnings:z.array(z.string().max(500)).max(30),
 });
@@ -17,7 +17,7 @@ const nullable=(type:string)=>({type:[type,'null']});
 const fillJson={type:'object',properties:{price:{type:'number'},quantity:{type:'number'}},required:['price','quantity'],additionalProperties:false};
 const properties={
  sourceLabel:{type:'string'},symbol:nullable('string'),market:{type:['string','null'],enum:['futures','crypto',null]},side:{type:['string','null'],enum:['long','short',null]},currency:{type:['string','null'],enum:['USD','USDT',null]},
- entryTime:nullable('string'),exitTime:nullable('string'),entry:nullable('number'),exit:nullable('number'),quantity:nullable('number'),multiplier:nullable('number'),fees:nullable('number'),feeMode:{type:['string','null'],enum:['paid','rebate',null]},funding:nullable('number'),netProfit:nullable('number'),netProfitIsNet:{type:'boolean'},strategy:nullable('string'),
+ entryTime:nullable('string'),exitTime:nullable('string'),entry:nullable('number'),exit:nullable('number'),quantity:nullable('number'),multiplier:nullable('number'),commission:nullable('number'),fees:nullable('number'),feeMode:{type:['string','null'],enum:['paid','rebate',null]},funding:nullable('number'),netProfit:nullable('number'),netProfitIsNet:{type:'boolean'},strategy:nullable('string'),
  entryFills:{type:'array',items:fillJson},exitFills:{type:'array',items:fillJson},completeFillHistory:{type:'boolean'},warnings:{type:'array',items:{type:'string'}},
 };
 export const extractionJsonSchema={type:'object',properties:{trades:{type:'array',items:{type:'object',properties,required:Object.keys(properties),additionalProperties:false}},warnings:{type:'array',items:{type:'string'}}},required:['trades','warnings'],additionalProperties:false};
@@ -41,7 +41,8 @@ export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;
  const futuresRoot=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(s=>symbol===s||new RegExp('^'+s+'[FGHJKMNQUVXZ]\\d{1,4}$').test(symbol));
  const multiplier=row.market==='crypto'?1:row.multiplier??(futuresRoot?multipliers[futuresRoot]:0);
  if(row.market==='crypto'&&row.multiplier!==null&&row.multiplier!==1)warnings.push('此商品的合約乘數不是 1；請改用帳單淨損益，並確認金額與幣別。');
- const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market:row.market??'futures',side:row.side??'long',currency:row.currency??(row.market==='crypto'?'USDT':'USD'),entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,fees:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees??0),feeMode:row.feeMode??'paid',funding:row.funding??0,strategy:row.strategy??'',notes:'',netOverride:row.netProfitIsNet?row.netProfit:null};
+ if(row.commission===null)warnings.push('截圖未顯示獨立佣金 Commission，暫填 0；若手續費為合計，勿重複填寫。');
+ const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market:row.market??'futures',side:row.side??'long',currency:row.currency??(row.market==='crypto'?'USDT':'USD'),entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,commission:Math.abs(row.commission??0),fees:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees??0),feeMode:row.feeMode??'paid',funding:row.funding??0,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
  return {trade,warnings:[...new Set(warnings)],sourceLabel:row.sourceLabel,entryBasis:row.entry!==null?'由截圖直接辨識':entry!==null?'由完整成交明細加權計算':'未能辨識，請補填',exitBasis:row.exit!==null?'由截圖直接辨識':exit!==null?'由完整成交明細加權計算':'未能辨識，請補填',selected:true,confirmed:false};
 }
 export async function stableImportId(owner:string,digest:string,index:number){const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${owner}:${digest}:${index}`));const hex=Array.from(new Uint8Array(bytes)).map(b=>b.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-5${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;}

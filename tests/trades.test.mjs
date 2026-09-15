@@ -9,7 +9,7 @@ const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade}=require('./tr
 const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
 const {extractScreenshot}=require('./vision.cjs');
-const t={...newTrade(),market:'crypto',symbol:'BTCUSDT',currency:'USDT',entry:100,exit:110,quantity:10,multiplier:1,positionValue:1000,leverage:10,marginMode:'isolated',fees:2,funding:3};
+const t={...newTrade(),profitBasis:'net',market:'crypto',symbol:'BTCUSDT',currency:'USDT',entry:100,exit:110,quantity:10,multiplier:1,positionValue:1000,leverage:10,marginMode:'isolated',fees:2,funding:3};
 assert.equal(initialMargin(t),100);assert.equal(pnl(t),95);
 assert.equal(pnl({...t,leverage:20}),95,'leverage must not multiply P&L twice');
 assert.equal(initialMargin({...t,leverage:20}),50);
