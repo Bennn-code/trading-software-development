@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./editor.css";
 import "./import.css";
+import "./periods.css";
 
 export const metadata: Metadata = {
   title: "交易手記｜我的交易日誌",
