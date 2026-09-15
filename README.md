@@ -4,7 +4,11 @@
 
 使用 Sites 的身分驗證與私密存取，D1 儲存交易資料，R2 儲存截圖。示範資料為虛構，只在本次瀏覽中修改；「我的紀錄」使用後端永久儲存。
 
-第一版限制：AI 截圖辨識尚未接入。自動損益適用已設定乘數的期貨、現貨與線性加密合約；反向合約可改填帳單淨損益。CSV 匯出目前篩選的紀錄，原始截圖可從交易詳情開啟另存。時間統一採台北 UTC+8。
+V1.1：截圖可手動拆成多筆，逐筆核對後批次儲存；共用原圖、失敗可重試而不重複寫入。自動辨識程式已備妥，但使用者選擇暫不連接付費 API，未設定金鑰時明確停用。交易策略選填。
+
+加密貨幣填進場倉位金額（USDT / USD）、全倉或逐倉及槓桿；估算初始保證金 = 進場倉位金額 ÷ 槓桿，不代表全倉最大風險或實際帳戶資金占用。盈虧可留白自算或輸入帶正負號的金額，可選已扣／未扣費用。舊交易數量保留相容，未記錄槓桿時不推測。
+
+自動損益適用已設定乘數的期貨、現貨與線性加密合約；反向合約可改填帳單淨損益。CSV 匯出目前篩選的紀錄，原始截圖可從交易詳情開啟另存。時間統一採台北 UTC+8。
 
 ## Runtime and development
 
@@ -132,3 +136,7 @@ The portable build runs Vinext directly without a host `timeout` command. The ma
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+
+## Trading regression checks
+
+`npm run test:trades` checks signed P&L, leverage/margin math, optional strategy, compatibility, weighted fills, and mocked screenshot extraction; it does not call a paid API. `npm run test:integration` requires a local development server at localhost:5173 with local D1/R2, creates test-only records, and cleans them up. It checks batch atomicity, safe retries, shared screenshots, auth, and disabled AI state.
