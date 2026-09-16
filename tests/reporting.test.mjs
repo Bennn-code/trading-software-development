@@ -21,11 +21,11 @@ const selected=inDateRange(rows,custom);assert.deepEqual(selected.map(t=>t.id),[
 const stats=currencyGroups(selected,'all').map(g=>dashboardStats(g.trades));assert.equal(stats[0].winRate,50);assert.equal(stats[1].winRate,100);assert.equal(dashboardStats(selected).winRate,2/3*100);assert.equal(stats[0].net,-6);assert.equal(stats[1].net,197);
 const now=Date.UTC(2026,8,16,0),data={tether:{usd:0.9994,last_updated_at:now/1000}},quote=parseExchangeRate(data,now);
 assert.equal(combinedUSD(-345.78,247.10,quote,now),-98.83);assert.equal(combinedUSD(100,-200,quote,now),-99.88);assert.equal(combinedUSD(-100,0,null,now),-100);
-assert.equal(combinedUSD(1,2,null,now),null);assert.equal(combinedUSD(1,2,quote,now+300001),null);assert.equal(combinedUSD(1,2,{...quote,rate:NaN},now),null);
+assert.equal(combinedUSD(1,2,null,now),null);assert.equal(combinedUSD(1,2,quote,now+86400001),null);assert.equal(combinedUSD(1,2,{...quote,rate:NaN},now),null);
 for(const bad of [null,{}, {tether:{usd:'1',last_updated_at:now/1000}},{tether:{usd:0,last_updated_at:now/1000}},{tether:{usd:1,last_updated_at:(now-300001)/1000}},{tether:{usd:1,last_updated_at:(now+120000)/1000}}])assert.throws(()=>parseExchangeRate(bad,now));
 assert.equal(isFreshRate('1'),false);
 let clock=now,calls=0,fail=false;
 const load=createRateLoader(async()=>{calls++;if(fail)return new Response('unavailable',{status:503});return new Response(JSON.stringify({tether:{usd:0.9994,last_updated_at:clock/1000}}));},()=>clock);
 await Promise.all([load(),load(),load()]);assert.equal(calls,1,'concurrent requests share one provider call');await load();assert.equal(calls,1,'fresh quote cached for a minute');
-clock+=60001;await load();assert.equal(calls,2);fail=true;clock+=60001;await assert.rejects(load());assert.equal(calls,3);fail=false;await load();assert.equal(calls,4,'failed requests can recover');
+clock+=60001;await load();assert.equal(calls,1,'quote cached beyond a minute');clock+=86400001;await load();assert.equal(calls,2);fail=true;clock+=86400001;await assert.rejects(load());assert.equal(calls,3);fail=false;await load();assert.equal(calls,4,'failed requests can recover');
 console.log('Passed date boundaries/leap years/cross-month weeks, shared date-range statistics, fee-adjusted currency win rates, signed FX conversion, missing/stale/invalid rates, cache/concurrency/recovery.');

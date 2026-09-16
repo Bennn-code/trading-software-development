@@ -14,3 +14,9 @@ export const reviews = sqliteTable('reviews', {
  userId:text('user_id').notNull(), kind:text('kind').notNull(), startDate:text('start_date').notNull(),
  payload:text('payload').notNull(), updatedAt:text('updated_at').notNull(),
 }, t=>[primaryKey({columns:[t.userId,t.kind,t.startDate]})]);
+export const importDuplicateApprovals=sqliteTable('import_duplicate_approvals',{
+ userId:text('user_id').notNull(),tradeId:text('trade_id').notNull(),fingerprint:text('fingerprint').notNull(),step:integer('step').notNull().default(0),expiresAt:integer('expires_at').notNull(),
+},t=>[primaryKey({columns:[t.userId,t.tradeId]})]);
+export const exchangeRates=sqliteTable('exchange_rates',{
+ pair:text('pair').primaryKey(),payload:text('payload').notNull(),fetchedAt:integer('fetched_at').notNull(),
+});

@@ -4,6 +4,7 @@ import { db,bucket,identity,json,failure,ApiError } from '@/lib/server';
 import { verifyTimes } from '@/lib/verify-times';
 import { extractScreenshot } from '@/lib/vision';
 import { normalizeRow,stableImportId } from '@/lib/screenshot-import';
+import { checkTradeDuplicates } from '@/lib/trade-duplicate-server';
 import { duplicateInfo } from '@/lib/image-duplicates';
 export async function GET(request:Request){try{await identity(request);return json({available:!!env.OPENAI_API_KEY});}catch(e){return failure(e);}}
 export async function POST(request:Request){try{
@@ -15,5 +16,6 @@ export async function POST(request:Request){try{
  let extraction;try{extraction=await extractScreenshot({key:env.OPENAI_API_KEY,model:env.OPENAI_VISION_MODEL||'gpt-4.1',dataUrl:`data:${image.mime};base64,${btoa(binary)}`,detailImages:parsed.data.detailImages});}catch(e){throw new ApiError(e instanceof Error?e.message:'辨識失敗，請重試',502);}
  extraction.trades=await verifyTimes({rows:extraction.trades,key:env.OPENAI_API_KEY,model:env.OPENAI_VISION_MODEL||'gpt-4.1',dataUrl:`data:${image.mime};base64,${btoa(binary)}`,detailImages:parsed.data.detailImages,offset});
  const candidates=await Promise.all(extraction.trades.map(async(row,index)=>normalizeRow(row,{id:await stableImportId(owner,duplicate.step===2?digest+':'+imageId:digest,index),imageId,account,offset})));
- return json({candidates,warnings:extraction.warnings});
+ const tradeDuplicates=await checkTradeDuplicates(owner,candidates.map(c=>c.trade));
+ return json({candidates:candidates.map(c=>({...c,selected:!tradeDuplicates.some(d=>d.tradeId===c.trade.id&&d.step<2)})),tradeDuplicates,warnings:extraction.warnings});
  }catch(e){return failure(e);}}
