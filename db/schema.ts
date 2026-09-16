@@ -20,3 +20,9 @@ export const importDuplicateApprovals=sqliteTable('import_duplicate_approvals',{
 export const exchangeRates=sqliteTable('exchange_rates',{
  pair:text('pair').primaryKey(),payload:text('payload').notNull(),fetchedAt:integer('fetched_at').notNull(),
 });
+export const accountLinks=sqliteTable('account_links',{
+ authId:text('auth_id').primaryKey(),ownerId:text('owner_id').notNull().unique(),createdAt:text('created_at').notNull(),
+});
+export const accountPreferences=sqliteTable('account_preferences',{
+ userId:text('user_id').primaryKey(),language:text('language').notNull().default('zh-Hant'),updatedAt:text('updated_at').notNull(),
+});

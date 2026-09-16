@@ -6,6 +6,8 @@ import "./periods.css";
 import "./reviews.css";
 import "./dashboard.css";
 import "./theme.css";
+import "./account.css";
+import { LanguageProvider } from './language-provider';
 
 export const metadata: Metadata = {
   title: "交易手記｜我的交易日誌",
@@ -26,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-Hant">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><LanguageProvider>{children}</LanguageProvider></body>
     </html>
   );
 }
