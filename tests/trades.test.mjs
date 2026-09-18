@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 fs.mkdirSync('work',{recursive:true});
 const require=createRequire(new URL('../work/',import.meta.url));
-for(const name of ['trades','validation','screenshot-import','vision']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
+for(const name of ['trades','validation','screenshot-import','vision','trade-duplicates']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
 const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade}=require('./trades.cjs');
 const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
 const {extractScreenshot}=require('./vision.cjs');
+const {findTradeMatches}=require('./trade-duplicates.cjs');
 const t={...newTrade(),profitBasis:'net',market:'crypto',symbol:'BTCUSDT',currency:'USDT',entry:100,exit:110,quantity:10,multiplier:1,positionValue:1000,leverage:10,marginMode:'isolated',fees:2,funding:3};
 assert.equal(initialMargin(t),100);assert.equal(pnl(t),95);
 assert.equal(pnl({...t,leverage:20}),95,'leverage must not multiply P&L twice');
@@ -56,3 +57,11 @@ const rebate=normalizeRow({...row,fees:2.4,feeMode:'rebate'},ctx);assert.equal(r
 const ambiguousFee=normalizeRow({...row,fees:-2.4,feeMode:null},ctx);assert.equal(ambiguousFee.trade.fees,2.4);assert.ok(ambiguousFee.warnings.some(s=>s.includes('手續費')));
 for(const key of ['entry','exit','quantity','multiplier','positionValue']){const invalid=tradeSchema.safeParse({...t,[key]:-1});assert.equal(invalid.success,false);const message=tradeIssueMessage(invalid.error.issues[0]);assert.ok(!message.includes('Number must'));assert.ok(message.includes('必須'));}
 console.log('Passed negative paid fees, explicit rebates, net profit preservation and named Chinese validation errors.');
+
+const savedDuplicate={...t,id:crypto.randomUUID(),market:'crypto',symbol:'PROMUSDT',currency:'USDT',side:'long',entryTime:'2026-08-25T13:47',exitTime:'2026-08-30T09:41',entry:4.349,exit:6.208,positionValue:211.072,quantity:48.533,netOverride:63.0751,profitBasis:'net'};
+const aiDuplicate={...savedDuplicate,id:crypto.randomUUID(),currency:'USD',side:'short',profitBasis:'gross'};
+const duplicateMatches=findTradeMatches([aiDuplicate],[savedDuplicate]);
+assert.equal(duplicateMatches.length,1,'AI classification differences must not hide an exact transaction duplicate');
+assert.equal(duplicateMatches[0].matchIds[0],savedDuplicate.id);
+assert.equal(findTradeMatches([{...aiDuplicate,id:crypto.randomUUID(),exit:6.209}],[savedDuplicate]).length,0,'different prices must remain distinct');
+console.log('Passed exact transaction duplicate matching across AI-only classification differences.');
