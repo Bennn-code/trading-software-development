@@ -55,6 +55,7 @@ try{
  assert.equal((await call(auth.POST,b,{action:'verify',email,code:'654321'})).status,400,'code is single use');
  assert.equal((await json(account.GET,a)).data.account.email,email);assert.ok(providerUserReads>0);
  assert.equal((await call(preferences.PUT,a,{language:'en'})).status,200);assert.equal((await json(account.GET,a)).data.language,'en');
+ assert.equal((await call(preferences.PUT,a,{language:'yue-Hant'})).status,200);assert.equal((await json(account.GET,a)).data.language,'yue-Hant');
  assert.equal((await call(preferences.PUT,a,{language:'ja'})).status,400);assert.equal((await call(preferences.PUT,b,{language:'en'})).status,401);
  const t={id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'test',currency:'USD',entryTime:'2026-09-01T10:00',exitTime:'2026-09-01T10:05',entry:100,exit:110,quantity:1,multiplier:2,fees:null,commission:null,funding:null,strategy:'',notes:'私人心得',imageId:null,netOverride:null};
  assert.equal((await call(trades.POST,a,t)).status,200);

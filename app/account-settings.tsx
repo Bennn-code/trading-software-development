@@ -21,7 +21,7 @@ export default function AccountSettings() {
   return <div className="account-settings">
     <section className="panel settings-panel"><div className="settings-title"><Globe size={22}/><div><h2>{t('顯示語言')}</h2><p>{t('選擇你習慣的語言，介面會立即切換。')}</p></div></div>
       <div className="language-options" role="group" aria-label={t('顯示語言')}>
-        {([['zh-Hant', '繁體中文', 'Traditional Chinese'], ['zh-Hans', '简体中文', 'Simplified Chinese'], ['en', 'English', '英文']] as const).map(([value, label, subtitle]) => <button key={value} lang={value} aria-pressed={language === value} onClick={() => setLanguage(value)}><span><strong>{label}</strong><small>{subtitle}</small></span>{language === value && <Check size={20}/>}</button>)}
+        {([['zh-Hant', '繁體中文', 'Traditional Chinese'], ['zh-Hans', '简体中文', 'Simplified Chinese'], ['yue-Hant', '粵語', '廣東話'], ['en', 'English', '英文']] as const).map(([value, label, subtitle]) => <button key={value} lang={value} aria-pressed={language === value} onClick={() => setLanguage(value)}><span><strong>{label}</strong><small>{subtitle}</small></span>{language === value && <Check size={20}/>}</button>)}
       </div><p className="field-hint">{t('登入後會同步到你的帳號，未登入時則保存在此瀏覽器。')}</p>{preferenceError && <p role="alert" className="settings-error">{t(preferenceError)}</p>}
     </section>
     <section className="panel settings-panel"><div className="settings-title"><UserRound size={22}/><div><h2>{t('帳號與登入')}</h2><p>{t('使用電子郵件及密碼登入你的交易空間。')}</p></div></div>

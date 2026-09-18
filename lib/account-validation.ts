@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const languageSchema = z.enum(['zh-Hant', 'zh-Hans', 'en']);
+export const languageSchema = z.enum(['zh-Hant', 'zh-Hans', 'yue-Hant', 'en']);
 export const emailSchema = z.string().trim().email('請輸入有效的電子郵件地址').max(254).transform(s => s.toLowerCase());
 export const passwordSchema = z.string()
   .min(8, '密碼至少需要 8 個字元')

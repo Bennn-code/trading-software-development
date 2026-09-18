@@ -8,7 +8,7 @@ r=await fetch(root+'/api/account/preferences',{method:'PUT',headers,body:JSON.st
 r=await fetch(root+'/signin-with-chatgpt?return_to=/',{redirect:'manual'});const cookie=r.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ');assert.ok(cookie);
 const own={...headers,cookie};const previous=await(await fetch(root+'/api/account',{headers:own})).json();assert.equal(previous.account.provider,'chatgpt');
 try{
- for(const language of ['en','zh-Hans','zh-Hant']){
+ for(const language of ['en','zh-Hans','yue-Hant','zh-Hant']){
   r=await fetch(root+'/api/account/preferences',{method:'PUT',headers:own,body:JSON.stringify({language})});assert.equal(r.status,200,await r.clone().text());
   data=await(await fetch(root+'/api/account',{headers:own})).json();assert.equal(data.language,language);
  }
