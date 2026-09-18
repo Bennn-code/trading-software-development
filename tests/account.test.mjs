@@ -39,14 +39,15 @@ const auth=load('app/api/account/auth/route.ts'),account=load('app/api/account/r
 const root='https://journal.test',a=new Map(),b=new Map();
 async function call(handler,jar,body,extra={}) {const request=new Request(root+'/api/test',{method:body?'POST':'GET',headers:{origin:root,'Content-Type':'application/json',...extra},...(body?{body:JSON.stringify(body)}:{})});return context.run({jar,request},()=>handler(request));}
 async function json(handler,jar,body,extra){const r=await call(handler,jar,body,extra);return{status:r.status,data:await r.json()};}
-const pass='a long test-only passphrase',email='one@example.test';
+const pass='A long test-only passphrase',email='one@example.test';
 try{
  assert.equal((await call(auth.POST,a,{action:'signup',email,password:pass},{origin:'https://evil.test'})).status,403);
- assert.equal((await call(auth.POST,a,{action:'signup',email,password:'short'})).status,400);
+ for(const weak of ['Short1','lowercase1','UPPERCASE1']) assert.equal((await call(auth.POST,a,{action:'signup',email,password:weak})).status,400);
  const missing=env.SUPABASE_URL;env.SUPABASE_URL='';assert.equal((await call(auth.POST,a,{action:'signup',email,password:pass})).status,503);env.SUPABASE_URL=missing;
  assert.equal((await call(auth.POST,a,{action:'signup',email,password:pass})).status,200);assert.equal([...a.keys()].filter(k=>/^journal-auth(\.\d+)?$/.test(k)).length,0,'signup cannot establish an unverified session');
  assert.equal((await call(auth.POST,a,{action:'login',email,password:pass})).status,400);
  assert.equal((await call(auth.POST,a,{action:'verify',email,code:'000000'})).status,400);
+ assert.equal((await call(auth.POST,a,{action:'verify',email,code:'00000000'})).status,400);
  assert.equal((await call(auth.POST,a,{action:'resend',email})).status,200);
  assert.equal((await call(auth.POST,a,{action:'verify',email,code:'123456'})).status,400,'old code cannot be reused');
  assert.equal((await call(auth.POST,a,{action:'verify',email,code:'654321'})).status,200);

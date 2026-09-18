@@ -61,9 +61,9 @@ export function AuthForm({ enabled }: { enabled: boolean }) {
     <form onSubmit={e => { e.preventDefault(); void submit(mode); }}>
       <label>{t('電子郵件')}<input type="email" autoComplete="email" required maxLength={254} value={email} disabled={busy || mode === 'verify'} onChange={e => setEmail(e.target.value)}/></label>
       {mode !== 'verify' ? <>
-        <label>{t('密碼')}<input type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={mode === 'signup' ? 12 : 1} maxLength={128} value={password} disabled={busy} onChange={e => setPassword(e.target.value)}/></label>
-        {mode === 'signup' && <><p className="field-hint">{t('密碼至少 12 個字元，可使用較長的詞句。')}</p><label>{t('再次輸入密碼')}<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={confirm} disabled={busy} onChange={e => setConfirm(e.target.value)}/></label></>}
-      </> : <label>{t('電子郵件驗證碼')}<input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,8}" required minLength={6} maxLength={8} value={code} disabled={busy} onChange={e => setCode(e.target.value.replace(/\D/g, ''))}/></label>}
+        <label>{t('密碼')}<input type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={mode === 'signup' ? 8 : 1} maxLength={128} pattern={mode === 'signup' ? '(?=.*[a-z])(?=.*[A-Z]).{8,128}' : undefined} value={password} disabled={busy} onChange={e => setPassword(e.target.value)}/></label>
+        {mode === 'signup' && <><p className="field-hint">{t('密碼至少 8 個字元，並包含大寫及小寫英文字母。')}</p><label>{t('再次輸入密碼')}<input type="password" autoComplete="new-password" required minLength={8} maxLength={128} pattern="(?=.*[a-z])(?=.*[A-Z]).{8,128}" value={confirm} disabled={busy} onChange={e => setConfirm(e.target.value)}/></label></>}
+      </> : <label>{t('電子郵件驗證碼')}<input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required minLength={6} maxLength={6} value={code} disabled={busy} onChange={e => setCode(e.target.value.replace(/\D/g, ''))}/></label>}
       {error && <p className="settings-error" role="alert">{t(error)}</p>}{notice && <p className="settings-notice" role="status">{t(notice)}</p>}
       <button className="primary-button" disabled={!enabled || busy || (mode === 'signup' && wait > 0)} type="submit"><Mail size={17}/>{busy ? t('處理中…') : mode === 'signup' ? t('寄送驗證碼') : mode === 'login' ? t('登入') : t('確認驗證碼')}</button>
     </form>
