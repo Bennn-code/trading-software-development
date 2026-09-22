@@ -1,6 +1,6 @@
 export type Trade = {
-  id: string; market: 'futures' | 'crypto'; symbol: string; side: 'long' | 'short';
-  account: string; currency: 'USD' | 'USDT'; entryTime: string; exitTime: string;
+  id: string; market: 'futures' | 'crypto' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
+  account: string; currency: 'USD' | 'USDT' | 'TWD' | 'CNY' | 'HKD'; entryTime: string; exitTime: string;
   entry: number; exit: number; quantity: number; multiplier: number; fees: number | null;
   funding: number | null; strategy: string; notes: string; imageId: string | null;
   netOverride: number | null;
@@ -9,11 +9,13 @@ export type Trade = {
   feeMode?: 'paid' | 'rebate'; commission?: number | null;
 };
 export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5, YM:5, MYM:0.5, RTY:50, M2K:5, CL:1000, MCL:100, GC:100, MGC:10 };
-export const marketName = (v:string) => v==='futures'?'美國期貨':'加密貨幣';
+export const marketNames:Record<Trade['market'],string>={futures:'美國期貨',crypto:'加密貨幣','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
+export const marketCurrencies:Record<Trade['market'],Trade['currency']>={futures:'USD',crypto:'USDT','tw-stocks':'TWD','cn-stocks':'CNY','hk-stocks':'HKD'};
+export const marketName = (v:string) => marketNames[v as Trade['market']]??v;
 export function parseSignedAmount(text:string):number|null { const value=text.trim().replaceAll('＋','+').replaceAll('−','-').replaceAll('－','-'); if(!value)return null; if(!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value))return NaN; return Number(value.replaceAll(',','')); }
 export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.quantity; }
 export function initialMargin(t:Trade) { return t.market==='crypto'&&t.leverage&&t.leverage>0&&positionValue(t)>0 ? positionValue(t)/t.leverage : null; }
-export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(t.market==='crypto'?1:t.multiplier); }
+export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(t.market==='futures'?t.multiplier:1); }
 export function feeCost(t:Trade) { return (t.feeMode==='rebate'?-1:1)*Math.abs(t.fees??0); }
 export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-Math.abs(t.commission??0)-feeCost(t)-(t.funding??0))*100)/100; }
 export function stats(trades:Trade[]) {

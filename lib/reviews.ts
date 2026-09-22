@@ -17,7 +17,7 @@ export type ReviewRecord={strategy:string;reflection:string;summary:ReviewSummar
 export const emptyReview=():ReviewRecord=>({strategy:'',reflection:'',summary:null,generatedAt:null,sourceFingerprint:null});
 export function reviewFacts(trades:Trade[]){
  const cents=(n:number)=>Math.round(n*100),round=(n:number)=>n/100;
- return (['USD','USDT'] as const).map(currency=>{
+ return (['USD','USDT','TWD','CNY','HKD'] as const).map(currency=>{
   const list=trades.filter(t=>t.currency===currency),wins=list.filter(t=>pnl(t)>0).length;
   const strategies=new Map<string,{count:number;netCents:number}>();
   for(const t of list){const name=t.strategy||'未分類',v=strategies.get(name)||{count:0,netCents:0};v.count++;v.netCents+=cents(pnl(t));strategies.set(name,v);}

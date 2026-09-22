@@ -7,11 +7,12 @@ import "./reviews.css";
 import "./dashboard.css";
 import "./theme.css";
 import "./account.css";
+import "./broker-import.css";
 import { LanguageProvider } from './language-provider';
 
 export const metadata: Metadata = {
   title: "交易手記｜我的交易日誌",
-  description: "記錄美國期貨與加密貨幣交易，從每一筆交易看見自己的進步。",
+  description: "記錄期貨、加密貨幣與股票交易，從每一筆交易看見自己的進步。",
   other: {
     "codex-preview": "development",
   },

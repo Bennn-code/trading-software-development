@@ -5,6 +5,7 @@ const require=createRequire(new URL('../work/',import.meta.url)),{newTrade}=requ
 const base={...newTrade(),entry:100,exit:110,quantity:1,multiplier:2,profitBasis:'net',entryTime:'2026-08-01T00:00'};
 const rows=[{...base,id:'a',exitTime:'2026-08-31T23:59',netOverride:100},{...base,id:'b',exitTime:'2026-09-01T23:59',netOverride:300},{...base,id:'c',exitTime:'2026-09-01T20:00',netOverride:-100},{...base,id:'d',market:'crypto',symbol:'BTCUSDT',currency:'USDT',exitTime:'2026-09-01T21:00',netOverride:500},{...base,id:'e',market:'crypto',symbol:'ETHUSDT',currency:'USDT',exitTime:'2026-09-06T23:59',netOverride:-200},{...base,id:'f',exitTime:'2026-09-07T00:00',netOverride:0}];
 assert.equal(currencyForMarket('all'),'all');assert.equal(currencyForMarket('futures'),'USD');assert.equal(currencyForMarket('crypto'),'USDT');
+assert.equal(currencyForMarket('tw-stocks'),'TWD');assert.equal(currencyForMarket('cn-stocks'),'CNY');assert.equal(currencyForMarket('hk-stocks'),'HKD');
 assert.equal(selectMarket(rows,'all','all').length,6);assert.equal(selectMarket(rows,'futures','USD').length,4);assert.equal(selectMarket(rows,'crypto','USDT').length,2);
 const groups=currencyGroups(rows,'all');assert.deepEqual(groups.map(g=>[g.currency,dashboardStats(g.trades).net]),[['USD',300],['USDT',300]]);
 const monthly=recordsForScope(rows,{month:'2026-09'});assert.equal(monthly.length,5);assert.equal(recordsForScope(rows,{month:'2026-09',scope:'all'}).length,6);
