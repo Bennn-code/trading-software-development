@@ -3,7 +3,7 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 fs.mkdirSync('work',{recursive:true});
-const names=['trades','validation','screenshot-import','import-review','periods','reviews','review-ai'];
+const names=['trades','validation','screenshot-import','import-review','periods','report-period','reviews','review-ai'];
 for(const name of names){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;for(const dependency of names)code=code.replaceAll(`"./${dependency}"`,`"./${dependency}.cjs"`);fs.writeFileSync(`work/${name}.cjs`,code);}
 const require=createRequire(new URL('../work/',import.meta.url));
 const {newTrade,pnl}=require('./trades.cjs');
@@ -30,15 +30,18 @@ assert.deepEqual(importBlockers([{...candidate,confirmed:true},{...candidate,sel
 assert.ok(importBlockers([{...candidate,selected:false}])[0].includes('至少'));
 assert.deepEqual(reviewBounds('week','2027-01-01'),{start:'2026-12-28',end:'2027-01-03'});
 assert.deepEqual(reviewBounds('month','2028-02-22'),{start:'2028-02-01',end:'2028-02-29'});
+assert.deepEqual(reviewBounds('quarter','2026-09-14'),{start:'2026-07-01',end:'2026-09-30'});
 assert.deepEqual(reviewBounds('year','2026-09-14'),{start:'2026-01-01',end:'2026-12-31'});
+assert.deepEqual(reviewBounds('custom','2026-09-14',{start:'2026-09-02',end:'2026-09-08'}),{start:'2026-09-02',end:'2026-09-08'});
 assert.throws(()=>reviewBounds('month','2026-02-30'));
 const facts=reviewFacts([t,{...t,id:'other',currency:'USDT',netOverride:100,profitBasis:'net'}]);
 assert.equal(facts[0].net,-328.6);assert.equal(facts[1].net,100);assert.equal(facts[0].commission,2.5);assert.equal(facts[0].fees,3.6);
 assert.notEqual(await reviewFingerprint([t],'',''),await reviewFingerprint([{...t,fees:5}],'',''));
 assert.notEqual(await reviewFingerprint([t],'',''),await reviewFingerprint([t],'','new reflection'));
 let body;
-const summary={overview:'test',strengths:[],improvements:['補寫心得'],nextSteps:['核對費用']};
+const summary={overview:'test',strategySummary:'策略紀律',reflectionSummary:'心得紀律',strengths:[],improvements:['補寫心得'],nextSteps:['核對費用']};
 const fake=async(url,init)=>{body=JSON.parse(init.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(summary)}]}]}));};
-for(const kind of ['week','month','year']){assert.deepEqual(await generateReview({key:'test',model:'test',kind,...reviewBounds(kind,'2026-09-14'),trades:[t],strategy:'',reflection:'',fetcher:fake}),summary);const input=JSON.parse(body.input[1].content);assert.equal(input.kind,kind);assert.equal(input.facts[0].net,-328.6);assert.equal(body.store,false);assert.equal(body.text.format.strict,true);}
+for(const kind of ['week','month','quarter','year']){assert.deepEqual(await generateReview({key:'test',model:'test',kind,...reviewBounds(kind,'2026-09-14'),trades:[t],strategy:'',reflection:'',fetcher:fake}),summary);const input=JSON.parse(body.input[1].content);assert.equal(input.kind,kind);assert.equal(input.facts[0].net,-328.6);assert.equal(body.store,false);assert.equal(body.text.format.strict,true);}
+assert.deepEqual(await generateReview({key:'test',model:'test',kind:'custom',...reviewBounds('custom','2026-09-14',{start:'2026-09-02',end:'2026-09-08'}),trades:[t],strategy:'每日策略',reflection:'每日心得',fetcher:fake}),summary);
 const many=Array.from({length:130},(_,i)=>({...t,id:String(i)}));await generateReview({key:'test',model:'test',kind:'year',...reviewBounds('year','2026-09-14'),trades:many,strategy:'',reflection:'',fetcher:fake});const input=JSON.parse(body.input[1].content);assert.equal(input.facts[0].count,130);assert.equal(input.tradeDetails.length,120);
 console.log('Passed separate Commission/Fee, gross and net P&L, bulk review validation, period bounds, currency isolation, stale fingerprints, all review kinds, and complete totals with bounded details.');

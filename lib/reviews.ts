@@ -1,17 +1,17 @@
 import { z } from 'zod';
-import { weekBounds } from './periods';
+import { reportPeriod, validDate, type DateRange, type ReportPeriod } from './report-period';
 import { pnl, feeCost, type Trade } from './trades';
 
-export const reviewSelection=z.object({kind:z.enum(['week','month','year']),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===s&&s>='1900-01-01'&&s<='2200-12-31';})});
-export type ReviewKind=z.infer<typeof reviewSelection>['kind'];
-export function reviewBounds(kind:ReviewKind,date:string){
- reviewSelection.parse({kind,date});
- if(kind==='week')return weekBounds(date);
- if(kind==='year')return {start:date.slice(0,4)+'-01-01',end:date.slice(0,4)+'-12-31'};
- const start=date.slice(0,7)+'-01',d=new Date(start+'T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);
- return {start,end:d.toISOString().slice(0,10)};
+const date=z.string().refine(s=>validDate(s)&&s>='1900-01-01'&&s<='2200-12-31','日期格式不正確');
+export const reviewSelection=z.object({kind:z.enum(['week','month','quarter','year','custom']),date,start:date.optional(),end:date.optional()}).superRefine((value,ctx)=>{if(value.kind==='custom'&&(!value.start||!value.end||value.start>value.end))ctx.addIssue({code:z.ZodIssueCode.custom,path:['start'],message:'請選擇有效的自訂日期範圍'});});
+export type ReviewKind=ReportPeriod;
+export function reviewBounds(kind:ReviewKind,anchor:string,custom?:DateRange){
+ const parsed=reviewSelection.parse({kind,date:anchor,start:custom?.start,end:custom?.end});
+ const range=reportPeriod(parsed.kind,parsed.date,{start:parsed.start??parsed.date,end:parsed.end??parsed.date});
+ if(!range.valid)throw new Error('日期範圍不正確');
+ return {start:range.start,end:range.end};
 }
-export const summarySchema=z.object({overview:z.string().max(3000),strengths:z.array(z.string().max(1200)).max(6),improvements:z.array(z.string().max(1200)).max(6),nextSteps:z.array(z.string().max(1200)).max(6)});
+export const summarySchema=z.object({overview:z.string().max(3000),strategySummary:z.string().max(4000),reflectionSummary:z.string().max(4000),strengths:z.array(z.string().max(1200)).max(6),improvements:z.array(z.string().max(1200)).max(6),nextSteps:z.array(z.string().max(1200)).max(6)});
 export type ReviewSummary=z.infer<typeof summarySchema>;
 export type ReviewRecord={strategy:string;reflection:string;summary:ReviewSummary|null;generatedAt:string|null;sourceFingerprint:string|null};
 export const emptyReview=():ReviewRecord=>({strategy:'',reflection:'',summary:null,generatedAt:null,sourceFingerprint:null});
