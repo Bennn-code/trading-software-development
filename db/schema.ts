@@ -26,3 +26,13 @@ export const accountLinks=sqliteTable('account_links',{
 export const accountPreferences=sqliteTable('account_preferences',{
  userId:text('user_id').primaryKey(),language:text('language').notNull().default('zh-Hant'),updatedAt:text('updated_at').notNull(),
 });
+export const securityRateLimits=sqliteTable('security_rate_limits',{
+ key:text('key').primaryKey(),hits:integer('hits').notNull().default(0),expiresAt:integer('expires_at').notNull(),
+},t=>[index('idx_security_rate_limits_expires').on(t.expiresAt)]);
+export const securityEvents=sqliteTable('security_events',{
+ id:text('id').primaryKey(),userId:text('user_id'),actorHash:text('actor_hash').notNull(),eventType:text('event_type').notNull(),
+ details:text('details').notNull().default('{}'),createdAt:text('created_at').notNull(),
+},t=>[index('idx_security_events_user_created').on(t.userId,t.createdAt),index('idx_security_events_created').on(t.createdAt)]);
+export const accountExports=sqliteTable('account_exports',{
+ userId:text('user_id').primaryKey(),tokenHash:text('token_hash').notNull(),exportedAt:text('exported_at').notNull(),expiresAt:integer('expires_at').notNull(),
+});

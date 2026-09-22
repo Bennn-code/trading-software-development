@@ -1,0 +1,3 @@
+import { db, identity, json, failure } from '@/lib/server';
+import { securityEventLabel } from '@/lib/security';
+export async function GET(request:Request){try{const owner=await identity(request);const rows=await db().prepare('SELECT event_type,details,created_at FROM security_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 12').bind(owner).all<{event_type:string;details:string;created_at:string}>();return json({events:rows.results.map(row=>({type:row.event_type,label:securityEventLabel(row.event_type),details:JSON.parse(row.details),createdAt:row.created_at}))});}catch(e){return failure(e);}}

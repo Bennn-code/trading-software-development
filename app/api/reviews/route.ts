@@ -4,6 +4,7 @@ import { db, identity, json, failure, ApiError } from '@/lib/server';
 import { emptyReview, reviewSelection, reviewBounds, reviewFingerprint, type ReviewRecord } from '@/lib/reviews';
 import { generateReview } from '@/lib/review-ai';
 import type { Trade } from '@/lib/trades';
+import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
 
 async function load(owner:string,kind:string,start:string){
  const row=await db().prepare('SELECT payload FROM reviews WHERE user_id = ? AND kind = ? AND start_date = ?').bind(owner,kind,start).first<{payload:string}>();
@@ -35,12 +36,13 @@ export async function POST(request:Request){try{
  await save(owner,kind,start,record); // Preserve the daily-note snapshot even if the provider subsequently fails.
  const trades=await tradesIn(owner,start,end),fingerprint=await reviewFingerprint(trades,record.strategy,record.reflection);
  if(action==='generate'){
+  await enforceRateLimit(request,{scope:'ai-review',limit:10,windowSeconds:86400,subject:owner});
   if(!env.OPENAI_API_KEY)throw new ApiError('心得已儲存，AI 服務尚未連線。',503);
   if(!trades.length&&!record.strategy.trim()&&!record.reflection.trim())throw new ApiError('這個期間還沒有交易、心得或策略可供總結。');
   let summary;try{summary=await generateReview({key:env.OPENAI_API_KEY,model:env.OPENAI_VISION_MODEL||'gpt-4.1',kind,start,end,trades,strategy:record.strategy,reflection:record.reflection});}catch(e){throw new ApiError(e instanceof Error?e.message:'AI 總結失敗',502);}
   const latest=await load(owner,kind,start);
   if(latest.strategy!==record.strategy||latest.reflection!==record.reflection)throw new ApiError('心得已在另一頁更新；本次 AI 結果未覆蓋新內容，請重新載入。',409);
-  record.summary=summary;record.generatedAt=new Date().toISOString();record.sourceFingerprint=fingerprint;await save(owner,kind,start,record);
+  record.summary=summary;record.generatedAt=new Date().toISOString();record.sourceFingerprint=fingerprint;await save(owner,kind,start,record);await recordSecurityEvent(request,'ai_review_used',owner,{kind,start});
  }
  return json({record,stale:!!record.summary&&record.sourceFingerprint!==fingerprint});
  }catch(e){return failure(e);}}

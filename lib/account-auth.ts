@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
 
-export type Account = { userId: string; email: string; provider: 'email' | 'chatgpt'; linked: boolean };
+export type Account = { userId: string; email: string; provider: 'email' | 'chatgpt'; linked: boolean; authId?: string };
 export function emailAuthConfigured() { return !!(env.SUPABASE_URL && env.SUPABASE_PUBLISHABLE_KEY); }
 export async function emailClient(request: Request) {
   if (!emailAuthConfigured()) return null;
@@ -26,7 +26,7 @@ export async function currentAccount(request: Request): Promise<Account | null> 
     const { data, error } = await client.auth.getUser();
     if (error || !data.user?.email_confirmed_at || !data.user.email) return null;
     const link = await env.DB?.prepare('SELECT owner_id FROM account_links WHERE auth_id = ?').bind(data.user.id).first<{owner_id: string}>();
-    return { userId: link?.owner_id ?? `email:${data.user.id}`, email: data.user.email, provider: 'email', linked: !!link };
+    return { userId: link?.owner_id ?? `email:${data.user.id}`, email: data.user.email, provider: 'email', linked: !!link, authId:data.user.id };
   }
   const legacy = await getChatGPTUser();
   return legacy ? { userId: legacy.userId, email: legacy.email, provider: 'chatgpt', linked: false } : null;

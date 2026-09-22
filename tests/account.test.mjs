@@ -55,6 +55,7 @@ try{
  assert.equal((await call(auth.POST,b,{action:'verify',email,code:'654321'})).status,400,'code is single use');
  assert.equal((await json(account.GET,a)).data.account.email,email);assert.ok(providerUserReads>0);
  assert.equal((await call(preferences.PUT,a,{language:'en'})).status,200);assert.equal((await json(account.GET,a)).data.language,'en');
+ assert.equal((await call(preferences.PUT,a,{language:'en'},{origin:''})).status,403,'authenticated writes require an exact same-origin header');
  assert.equal((await call(preferences.PUT,a,{language:'yue-Hant'})).status,200);assert.equal((await json(account.GET,a)).data.language,'yue-Hant');
  assert.equal((await call(preferences.PUT,a,{language:'ja'})).status,400);assert.equal((await call(preferences.PUT,b,{language:'en'})).status,401);
  const t={id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'test',currency:'USD',entryTime:'2026-09-01T10:00',exitTime:'2026-09-01T10:05',entry:100,exit:110,quantity:1,multiplier:2,fees:null,commission:null,funding:null,strategy:'',notes:'私人心得',imageId:null,netOverride:null};
@@ -72,6 +73,8 @@ try{
  assert.equal((await call(auth.POST,a,{action:'login',email,password:'wrong password'})).status,400);
  assert.equal((await call(auth.POST,a,{action:'login',email,password:pass})).status,200);
  sessions.clear();assert.equal((await call(trades.GET,a,undefined,legacy)).status,401,'invalid email session must not fall back to another identity in the same request');
+ assert.equal((await call(auth.POST,new Map(),{action:'forgot',email:'unknown@example.test'})).status,200,'password reset does not reveal whether an account exists');
+ const limiter=new Map();for(let i=0;i<10;i++)assert.notEqual((await call(auth.POST,limiter,{action:'login',email:'rate-limit@example.test',password:'wrong'})).status,429);assert.equal((await call(auth.POST,limiter,{action:'login',email:'rate-limit@example.test',password:'wrong'})).status,429,'repeated login attempts are rate limited');
  autoConfirm=true;const c=new Map();assert.equal((await call(auth.POST,c,{action:'signup',email:'three@example.test',password:pass})).status,503);assert.equal(c.size,0,'misconfigured auto-confirm must fail closed');
- console.log('Passed auth validation, signup/OTP/resend/replay, secure cookies, verified identity, password login, logout, language persistence, account isolation, and explicit safe linking. Mock provider only; real email delivery still requires setup.');
+ console.log('Passed auth validation, signup/OTP/resend/replay, password reset privacy, login throttling, strict same-origin writes, secure cookies, verified identity, password login, logout, language persistence, account isolation, and explicit safe linking. Mock provider only; real email delivery still requires setup.');
 }finally{await new Promise(resolve=>provider.close(resolve));sqlite.close();}
