@@ -537,5 +537,18 @@
   "請提供有效的資料。": "Please provide valid data.",
   "不支援此語言": "Unsupported language",
   "請先登入原本的 ChatGPT 帳號與已驗證的電子郵件帳號。": "Sign in with both your original ChatGPT account and a verified email account.",
-  "無法連結：帳號已連結，或電子郵件空間已有交易資料。請先確認兩邊紀錄。": "Unable to link: an account is already linked or the email space contains trades. Check both spaces first."
+  "無法連結：帳號已連結，或電子郵件空間已有交易資料。請先確認兩邊紀錄。": "Unable to link: an account is already linked or the email space contains trades. Check both spaces first.",
+  "手續費": "Commission",
+  "交易稅": "Transaction tax",
+  "證券交易稅": "Securities transaction tax",
+  "券商手續費": "Broker commission",
+  "券商手續費（{0}）": "Broker commission ({0})",
+  "支付其他費用（扣除）": "Pay other fees (deduct)",
+  "其他交易費 Fee（{0}）": "Other fees ({0})",
+  "其他交易費 Fee": "Other fees",
+  "扣除其他交易費": "Deduct other fees",
+  "佣金／券商手續費": "Commission / broker fee",
+  "台股對帳單的「手續費」填在券商手續費，「證交稅」填在證券交易稅。交易稅只在賣出時收取，稅率依商品與是否當沖而異，請以券商對帳單金額為準；未知欄位可留白，不會自動猜測。": "For Taiwan statements, enter 手續費 as broker commission and 證交稅 as securities transaction tax. Tax is charged on sales, and the rate depends on the security and day-trade status. Use the amount on the broker statement; unknown fields may be left blank.",
+  "依平均進出場價與倉位計算，扣除已知的手續費、交易稅、其他費用與資金費。": "Calculated from average entry/exit prices and position size, less known commission, transaction tax, other fees and funding.",
+  "將再扣除已知的手續費、交易稅、其他費用與資金費。": "Known commission, transaction tax, other fees and funding will be deducted."
 }

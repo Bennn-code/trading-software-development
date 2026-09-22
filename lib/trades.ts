@@ -6,7 +6,7 @@ export type Trade = {
   netOverride: number | null;
   positionValue?: number | null; leverage?: number | null;
   marginMode?: 'cross' | 'isolated' | null; profitBasis?: 'net' | 'gross';
-  feeMode?: 'paid' | 'rebate'; commission?: number | null;
+  feeMode?: 'paid' | 'rebate'; commission?: number | null; transactionTax?: number | null;
 };
 export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5, YM:5, MYM:0.5, RTY:50, M2K:5, CL:1000, MCL:100, GC:100, MGC:10 };
 export const marketNames:Record<Trade['market'],string>={futures:'美國期貨',crypto:'加密貨幣','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
@@ -17,7 +17,7 @@ export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.qua
 export function initialMargin(t:Trade) { return t.market==='crypto'&&t.leverage&&t.leverage>0&&positionValue(t)>0 ? positionValue(t)/t.leverage : null; }
 export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(t.market==='futures'?t.multiplier:1); }
 export function feeCost(t:Trade) { return (t.feeMode==='rebate'?-1:1)*Math.abs(t.fees??0); }
-export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-Math.abs(t.commission??0)-feeCost(t)-(t.funding??0))*100)/100; }
+export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-Math.abs(t.commission??0)-Math.abs(t.transactionTax??0)-feeCost(t)-(t.funding??0))*100)/100; }
 export function stats(trades:Trade[]) {
   const values=trades.map(pnl); const wins=values.filter(v=>v>0), losses=values.filter(v=>v<0);
   return { net:values.reduce((s,v)=>s+v,0), count:values.length, winRate:values.length?wins.length/values.length*100:0,
@@ -25,7 +25,7 @@ export function stats(trades:Trade[]) {
     factor:losses.length?wins.reduce((s,v)=>s+v,0)/Math.abs(losses.reduce((s,v)=>s+v,0)):wins.length?Infinity:0 };
 }
 export function localTime(date = new Date()) {return new Date(date.getTime()+8*3600000).toISOString().slice(0,16);}
-export function newTrade():Trade {return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',entryTime:localTime(),exitTime:localTime(),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null};}
+export function newTrade():Trade {return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',entryTime:localTime(),exitTime:localTime(),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null,transactionTax:null};}
 export function demoTrades():Trade[] {
   const month=localTime().slice(0,7);
   const rows:[number,string,'long'|'short',number,number,string][]=[

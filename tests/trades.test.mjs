@@ -20,6 +20,8 @@ assert.equal(pnl({...t,side:'short',exit:90,funding:-3}),101);
 assert.equal(pnl({...t,netOverride:1000}),1000,'net override must not double deduct');
 assert.equal(pnl({...t,netOverride:-1000}),-1000);
 assert.equal(pnl({...t,netOverride:1000,profitBasis:'gross'}),995);
+assert.equal(pnl({...t,netOverride:1000,profitBasis:'gross',transactionTax:3}),992,'gross P&L deducts explicit securities transaction tax');
+assert.equal(pnl({...t,netOverride:1000,profitBasis:'net',transactionTax:3}),1000,'net P&L never double deducts securities transaction tax');
 assert.equal(pnl({...t,netOverride:0}),0,'zero is an override');
 assert.equal(pnl({...t,market:'futures',quantity:2,multiplier:20,fees:5,funding:0}),395);
 assert.equal(pnl({...t,positionValue:undefined}),95,'old crypto records compatible');
@@ -55,6 +57,9 @@ assert.equal(pnl({...t,fees:-2,feeMode:'rebate',netOverride:-1000}),-1000);
 const negativeFee=normalizeRow({...row,fees:-2.4,feeMode:'paid'},ctx);assert.equal(negativeFee.trade.fees,2.4);assert.ok(tradeSchema.safeParse(negativeFee.trade).success);
 const rebate=normalizeRow({...row,fees:2.4,feeMode:'rebate'},ctx);assert.equal(rebate.trade.fees,-2.4);assert.ok(tradeSchema.safeParse(rebate.trade).success);
 const ambiguousFee=normalizeRow({...row,fees:-2.4,feeMode:null},ctx);assert.equal(ambiguousFee.trade.fees,2.4);assert.ok(ambiguousFee.warnings.some(s=>s.includes('手續費')));
+const taiwanRow=normalizeRow({...row,sourceLabel:'永豐金證券 證券電子對帳單',symbol:'2330',market:'tw-stocks',currency:'TWD',entry:100,exit:110,quantity:1000,multiplier:null,commission:20,commissionSource:'手續費 20',transactionTax:33,transactionTaxSource:'證交稅 33',fees:null,feeSource:null,funding:null,fundingSource:null,netProfit:null},ctx);
+assert.equal(taiwanRow.trade.market,'tw-stocks');assert.equal(taiwanRow.trade.currency,'TWD');assert.equal(taiwanRow.trade.transactionTax,33);assert.equal(taiwanRow.trade.commission,20);assert.equal(pnl(taiwanRow.trade),9947);
+const unlabeledTax=normalizeRow({...row,symbol:'2330',market:'tw-stocks',currency:'TWD',transactionTax:33,transactionTaxSource:null},ctx);assert.equal(unlabeledTax.trade.transactionTax,null,'unlabeled tax must not be guessed');
 for(const key of ['entry','exit','quantity','multiplier','positionValue']){const invalid=tradeSchema.safeParse({...t,[key]:-1});assert.equal(invalid.success,false);const message=tradeIssueMessage(invalid.error.issues[0]);assert.ok(!message.includes('Number must'));assert.ok(message.includes('必須'));}
 console.log('Passed negative paid fees, explicit rebates, net profit preservation and named Chinese validation errors.');
 
