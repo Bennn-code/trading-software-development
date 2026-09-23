@@ -1,6 +1,6 @@
 'use client';
 import { useI18n } from './language-provider';
-import { useEffect, useMemo, useState, useId, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Activity, ArrowDownToLine, ArrowUpRight, BookOpen, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FileSpreadsheet, FlaskConical, LayoutDashboard, ListFilter, Plus, Search, ScanLine, ShieldCheck, TrendingUp, Wallet, X, type LucideIcon } from 'lucide-react';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
