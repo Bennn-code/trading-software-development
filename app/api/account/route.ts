@@ -10,9 +10,11 @@ import { ensureProfiles } from '@/lib/profiles';
 export async function GET(request: Request) {
   try {
     const account = await currentAccount(request);
-    const legacy = await getChatGPTUser();
+    const [legacy,spaces] = await Promise.all([
+      getChatGPTUser(),
+      account ? ensureProfiles(account.userId) : Promise.resolve({profiles:[],activeProfileId:null}),
+    ]);
     const preference = account ? await db().prepare('SELECT language,show_demo_data,timezone,base_currency,pnl_color,active_profile_id FROM account_preferences WHERE user_id = ?').bind(account.userId).first<{language:string;show_demo_data:number;timezone:string;base_currency:string;pnl_color:string;active_profile_id:string|null}>() : null;
-    const spaces=account?await ensureProfiles(account.userId):{profiles:[],activeProfileId:null};
     return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null,preferences:preference?{language:preference.language,showDemoData:!!preference.show_demo_data,timezone:preference.timezone,baseCurrency:preference.base_currency,pnlColor:preference.pnl_color,activeProfileId:spaces.activeProfileId}:null,profiles:spaces.profiles,activeProfileId:spaces.activeProfileId, canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
   } catch (e) { return failure(e); }
 }
