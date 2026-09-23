@@ -1,7 +1,7 @@
-import { db,identity,json,ApiError,failure } from '@/lib/server';
+import { db,json,ApiError,failure } from '@/lib/server';
 import { createRateLoader,isFreshRate } from '@/lib/exchange-rate';
 const loadRate=createRateLoader();
-export async function GET(request:Request){try{await identity(request);try{
+export async function GET(){try{try{
  const cached=await db().prepare("SELECT payload FROM exchange_rates WHERE pair='USDT_USD'").first<{payload:string}>();
  if(cached){const quote=JSON.parse(cached.payload);if(isFreshRate(quote))return json(quote);}
  const quote=await loadRate();await db().prepare("INSERT INTO exchange_rates (pair,payload,fetched_at) VALUES ('USDT_USD',?,?) ON CONFLICT(pair) DO UPDATE SET payload=excluded.payload,fetched_at=excluded.fetched_at").bind(JSON.stringify(quote),Date.now()).run();return json(quote);
