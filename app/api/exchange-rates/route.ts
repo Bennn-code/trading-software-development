@@ -1,10 +1,10 @@
-import { db,identity,json,ApiError,failure } from '@/lib/server';
+import { db,json,ApiError,failure } from '@/lib/server';
 import { currencyOptions } from '@/lib/preferences';
 const HOUR=60*60*1000;
 type Quote={rates:Record<string,number>;updatedAt:number;provider:string};
 function usable(q:Quote){return q&&typeof q.updatedAt==='number'&&Object.values(q.rates||{}).some(value=>Number.isFinite(value)&&value>0);}
 function valid(q:Quote){return usable(q)&&Date.now()-q.updatedAt<HOUR;}
-export async function GET(request:Request){try{await identity(request);const database=db(),cached=await database.prepare("SELECT payload FROM exchange_rates WHERE pair='DISPLAY_USD'").first<{payload:string}>();if(cached){const q=JSON.parse(cached.payload) as Quote;if(valid(q)&&Date.now()-q.updatedAt<HOUR)return json(q);}
+export async function GET(){try{const database=db(),cached=await database.prepare("SELECT payload FROM exchange_rates WHERE pair='DISPLAY_USD'").first<{payload:string}>();if(cached){const q=JSON.parse(cached.payload) as Quote;if(valid(q)&&Date.now()-q.updatedAt<HOUR)return json(q);}
  const previous=cached?JSON.parse(cached.payload) as Quote:null;
  try{const fiatResponse=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(10000)});if(!fiatResponse.ok)throw new Error('fiat provider');const f=await fiatResponse.json() as{rates?:Record<string,number>};if(!f.rates)throw new Error('fiat payload');
   const rates:Record<string,number>={...(previous?.rates||{}),USD:1};for(const [code] of currencyOptions){const value=f.rates[code];if(Number.isFinite(value)&&value>0)rates[code]=value;}
