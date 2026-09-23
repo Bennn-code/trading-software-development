@@ -60,7 +60,7 @@ export default function PeriodSummary({
     <div className="period-heading">
       <div>
         <h2>{tx('交易損益與筆數')}</h2>
-        <p>{tx('依市場與幣別篩選 · {0}出場日期 · 主要換算：{1}', [place, displayCurrency])}</p>
+        <p>{tx('依市場篩選 · {0}出場日期 · 主要換算：{1}', [place, displayCurrency])}</p>
       </div>
       <div className="period-date">
         <label htmlFor="period-date">{tx('查看日期')}</label>

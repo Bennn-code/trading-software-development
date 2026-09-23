@@ -1,5 +1,5 @@
 export type ExchangeRate={rate:number;updatedAt:number;provider:'CoinGecko'};
-export const RATE_MAX_AGE_MS=24*60*60*1000;
+export const RATE_MAX_AGE_MS=60*60*1000;
 export function isFreshRate(value:unknown,now=Date.now()):value is ExchangeRate{if(!value||typeof value!=='object')return false;const quote=value as ExchangeRate;return typeof quote.rate==='number'&&Number.isFinite(quote.rate)&&quote.rate>0&&typeof quote.updatedAt==='number'&&Number.isFinite(quote.updatedAt)&&quote.updatedAt<=now+60000&&now-quote.updatedAt<=RATE_MAX_AGE_MS;}
 export function parseExchangeRate(data:unknown,now=Date.now()):ExchangeRate{
  const price=(data as {tether?:{usd?:unknown;last_updated_at?:unknown}})?.tether;

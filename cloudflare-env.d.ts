@@ -3,6 +3,8 @@ declare namespace Cloudflare {
     DB?: D1Database;
     BUCKET?: R2Bucket;
     OPENAI_API_KEY?: string;
+    OPENAI_CHAT_API_KEY?: string;
+    OPENAI_CHAT_MODEL?: string;
     OPENAI_VISION_MODEL?: string;
     SUPABASE_URL?: string;
     SUPABASE_PUBLISHABLE_KEY?: string;
