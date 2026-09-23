@@ -1,6 +1,7 @@
 export type Trade = {
   id: string; market: 'futures' | 'crypto' | 'us-stocks' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
   account: string; currency: 'USD' | 'USDT' | 'TWD' | 'CNY' | 'HKD'; entryTime: string; exitTime: string;
+  timezone?: string;
   entry: number; exit: number; quantity: number; multiplier: number; fees: number | null;
   funding: number | null; strategy: string; notes: string; imageId: string | null;
   netOverride: number | null;
@@ -25,7 +26,7 @@ export function stats(trades:Trade[]) {
     factor:losses.length?wins.reduce((s,v)=>s+v,0)/Math.abs(losses.reduce((s,v)=>s+v,0)):wins.length?Infinity:0 };
 }
 export function localTime(date = new Date(),timeZone?:string) {if(!timeZone&&typeof window!=='undefined')try{timeZone=localStorage.getItem('trade-timezone')||undefined}catch{};timeZone??='Asia/Taipei';const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),get=(key:string)=>parts.find(p=>p.type===key)?.value||'';return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;}
-export function newTrade():Trade {return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',entryTime:localTime(),exitTime:localTime(),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null,transactionTax:null};}
+export function newTrade():Trade {const timezone=typeof window!=='undefined'?localStorage.getItem('trade-timezone')||'Asia/Taipei':'Asia/Taipei';return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',timezone,entryTime:localTime(new Date(),timezone),exitTime:localTime(new Date(),timezone),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null,transactionTax:null};}
 export function demoTrades():Trade[] {
   const month=localTime().slice(0,7);
   const rows:[number,string,'long'|'short',number,number,string][]=[
