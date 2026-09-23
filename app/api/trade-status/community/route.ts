@@ -1,10 +1,11 @@
 import { db,identity,json,failure } from '@/lib/server';
 import { pnl,positionValue,type Trade } from '@/lib/trades';
 import { mistakeStats } from '@/lib/trade-status';
+import { currencyOptions } from '@/lib/preferences';
 
 export async function GET(request:Request){try{
  await identity(request);const start=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
- const requested=new URL(request.url).searchParams.get('currency')||'auto',currency=['USD','USDT','TWD','CNY','HKD'].includes(requested)?requested:'auto';
+ const requested=new URL(request.url).searchParams.get('currency')||'auto',currency=requested==='auto'||currencyOptions.some(([code])=>code===requested)?requested:'auto';
  const result=await db().prepare('SELECT user_id,payload FROM trades WHERE exit_time>=? ORDER BY exit_time DESC LIMIT 5000').bind(start+'T00:00').all<{user_id:string;payload:string}>();
  const rows=result.results.map(r=>({userId:r.user_id,trade:JSON.parse(r.payload) as Trade})),users=[...new Set(rows.map(r=>r.userId))];
  if(users.length<3)return json({mistakes:[],profit:[],returns:[],sampleSize:users.length});
@@ -16,7 +17,7 @@ export async function GET(request:Request){try{
  const anonymous=new Map([...byUser.keys()].sort().map((id,i)=>[id,`交易者 ${String.fromCharCode(65+i%26)}${i>=26?Math.floor(i/26):''}`]));
  const convert=(value:number,from:string)=>{const a=rates[from],b=rates[target];return Number.isFinite(a)&&a>0&&Number.isFinite(b)&&b>0?value/a*b:(from===target?value:null);};
  const rawProfit=[...byUser].map(([userId,trades])=>({userId,currency:target,value:trades.reduce((sum,t)=>sum+(convert(pnl(t),t.currency)??0),0)}));
- const profit=rawProfit.filter(x=>x.value>0).sort((a,b)=>b.value-a.value).slice(0,5).map(x=>({label:anonymous.get(x.userId)||'交易者',value:Math.round(x.value*100)/100,currency:x.currency}));
- const returns=[...byUser].map(([userId,trades])=>{const denominator=trades.reduce((s,t)=>s+(positionValue(t)>0?convert(positionValue(t),t.currency)??0:0),0),numerator=trades.reduce((s,t)=>s+(convert(pnl(t),t.currency)??0),0);return{userId,value:denominator?numerator/denominator*100:0};}).filter(x=>x.value>0).sort((a,b)=>b.value-a.value).slice(0,5).map(x=>({label:anonymous.get(x.userId)||'交易者',value:Math.round(x.value*100)/100}));
+ const profit=rawProfit.sort((a,b)=>b.value-a.value).slice(0,5).map(x=>({label:anonymous.get(x.userId)||'交易者',value:Math.round(x.value*100)/100,currency:x.currency}));
+ const returns=[...byUser].map(([userId,trades])=>{const denominator=trades.reduce((s,t)=>s+(positionValue(t)>0?convert(positionValue(t),t.currency)??0:0),0),numerator=trades.reduce((s,t)=>s+(convert(pnl(t),t.currency)??0),0);return{userId,value:denominator?numerator/denominator*100:0};}).sort((a,b)=>b.value-a.value).slice(0,5).map(x=>({label:anonymous.get(x.userId)||'交易者',value:Math.round(x.value*100)/100}));
  return json({mistakes,profit,returns,sampleSize:users.length});
  }catch(e){return failure(e);}}
