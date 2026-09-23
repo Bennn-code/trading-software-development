@@ -21,7 +21,7 @@ export function tradeIssueMessage(issue:z.ZodIssue) {
 const amount=z.number().finite().min(0).max(1e12);
 const time=z.string().refine(s=>{if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s))return false;const d=new Date(s+'Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,16)===s;},'請填寫完整且有效的日期與時間');
 export const tradeSchema=z.object({
- id:z.string().uuid(),market:z.enum(['futures','crypto','tw-stocks','cn-stocks','hk-stocks']),symbol:z.string().trim().min(1).max(30),side:z.enum(['long','short']),
+ id:z.string().uuid(),market:z.enum(['futures','crypto','us-stocks','tw-stocks','cn-stocks','hk-stocks']),symbol:z.string().trim().min(1).max(30),side:z.enum(['long','short']),
  account:z.string().trim().min(1).max(80),currency:z.enum(['USD','USDT','TWD','CNY','HKD']),entryTime:time,exitTime:time,
  entry:amount,exit:amount,quantity:amount,multiplier:amount,
  commission:z.number().finite().min(-1e12).max(1e12).nullable().optional(),transactionTax:z.number().finite().min(-1e12).max(1e12).nullable().optional(),fees:z.number().finite().min(-1e12).max(1e12).nullable().optional(),feeMode:z.enum(['paid','rebate']).optional(),funding:z.number().finite().min(-1e12).max(1e12).nullable().optional(),strategy:z.preprocess(v=>v??'',z.string().trim().max(80)),notes:z.string().max(10000),

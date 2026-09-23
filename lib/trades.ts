@@ -1,5 +1,5 @@
 export type Trade = {
-  id: string; market: 'futures' | 'crypto' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
+  id: string; market: 'futures' | 'crypto' | 'us-stocks' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
   account: string; currency: 'USD' | 'USDT' | 'TWD' | 'CNY' | 'HKD'; entryTime: string; exitTime: string;
   entry: number; exit: number; quantity: number; multiplier: number; fees: number | null;
   funding: number | null; strategy: string; notes: string; imageId: string | null;
@@ -9,8 +9,8 @@ export type Trade = {
   feeMode?: 'paid' | 'rebate'; commission?: number | null; transactionTax?: number | null;
 };
 export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5, YM:5, MYM:0.5, RTY:50, M2K:5, CL:1000, MCL:100, GC:100, MGC:10 };
-export const marketNames:Record<Trade['market'],string>={futures:'美國期貨',crypto:'加密貨幣','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
-export const marketCurrencies:Record<Trade['market'],Trade['currency']>={futures:'USD',crypto:'USDT','tw-stocks':'TWD','cn-stocks':'CNY','hk-stocks':'HKD'};
+export const marketNames:Record<Trade['market'],string>={futures:'美國期貨',crypto:'加密貨幣','us-stocks':'美股現貨','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
+export const marketCurrencies:Record<Trade['market'],Trade['currency']>={futures:'USD',crypto:'USDT','us-stocks':'USD','tw-stocks':'TWD','cn-stocks':'CNY','hk-stocks':'HKD'};
 export const marketName = (v:string) => marketNames[v as Trade['market']]??v;
 export function parseSignedAmount(text:string):number|null { const value=text.trim().replaceAll('＋','+').replaceAll('−','-').replaceAll('－','-'); if(!value)return null; if(!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value))return NaN; return Number(value.replaceAll(',','')); }
 export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.quantity; }
@@ -24,7 +24,7 @@ export function stats(trades:Trade[]) {
     avgWin:wins.length?wins.reduce((s,v)=>s+v,0)/wins.length:0, avgLoss:losses.length?losses.reduce((s,v)=>s+v,0)/losses.length:0,
     factor:losses.length?wins.reduce((s,v)=>s+v,0)/Math.abs(losses.reduce((s,v)=>s+v,0)):wins.length?Infinity:0 };
 }
-export function localTime(date = new Date()) {return new Date(date.getTime()+8*3600000).toISOString().slice(0,16);}
+export function localTime(date = new Date(),timeZone?:string) {if(!timeZone&&typeof window!=='undefined')try{timeZone=localStorage.getItem('trade-timezone')||undefined}catch{};timeZone??='Asia/Taipei';const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),get=(key:string)=>parts.find(p=>p.type===key)?.value||'';return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;}
 export function newTrade():Trade {return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',entryTime:localTime(),exitTime:localTime(),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null,transactionTax:null};}
 export function demoTrades():Trade[] {
   const month=localTime().slice(0,7);

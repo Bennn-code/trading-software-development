@@ -6,12 +6,14 @@ import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { db, bucket, json, failure, ApiError } from '@/lib/server';
 import { sameOrigin } from '@/lib/account-validation';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
+import { ensureProfiles } from '@/lib/profiles';
 export async function GET(request: Request) {
   try {
     const account = await currentAccount(request);
     const legacy = await getChatGPTUser();
-    const preference = account ? await db().prepare('SELECT language FROM account_preferences WHERE user_id = ?').bind(account.userId).first<{language:string}>() : null;
-    return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null, canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
+    const preference = account ? await db().prepare('SELECT language,show_demo_data,timezone,base_currency,pnl_color,active_profile_id FROM account_preferences WHERE user_id = ?').bind(account.userId).first<{language:string;show_demo_data:number;timezone:string;base_currency:string;pnl_color:string;active_profile_id:string|null}>() : null;
+    const spaces=account?await ensureProfiles(account.userId):{profiles:[],activeProfileId:null};
+    return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null,preferences:preference?{language:preference.language,showDemoData:!!preference.show_demo_data,timezone:preference.timezone,baseCurrency:preference.base_currency,pnlColor:preference.pnl_color,activeProfileId:spaces.activeProfileId}:null,profiles:spaces.profiles,activeProfileId:spaces.activeProfileId, canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
   } catch (e) { return failure(e); }
 }
 
@@ -40,6 +42,7 @@ export async function DELETE(request:Request){try{
   database.prepare('DELETE FROM reviews WHERE user_id = ?').bind(account.userId),
   database.prepare('DELETE FROM images WHERE user_id = ?').bind(account.userId),
   database.prepare('DELETE FROM account_preferences WHERE user_id = ?').bind(account.userId),
+  database.prepare('DELETE FROM trading_profiles WHERE user_id = ?').bind(account.userId),
   database.prepare('DELETE FROM security_events WHERE user_id = ?').bind(account.userId),
   database.prepare('DELETE FROM account_exports WHERE user_id = ?').bind(account.userId),
   database.prepare('DELETE FROM account_links WHERE owner_id = ? OR auth_id = ?').bind(account.userId,account.authId??''),
