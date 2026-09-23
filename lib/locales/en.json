@@ -902,5 +902,17 @@
   "依市場篩選 · {0}出場日期 · 主要換算：{1}": "Filtered by market · {0} exit date · Primary conversion: {1}",
   "每小時匯率：1 USDT ≈ ": "Hourly rate: 1 USDT ≈ ",
   "正在取得匯率…": "Fetching exchange rates…",
-  "匯率暫不可用，稍後自動重試。": "Exchange rates are unavailable; retrying automatically."
+  "匯率暫不可用，稍後自動重試。": "Exchange rates are unavailable; retrying automatically.",
+  "激進": "Aggressive",
+  "系統判定": "System assessment",
+  "依交易原幣別分列": "Grouped by original trade currency",
+  "原幣別保留，換算金額列於下方": "Original currency is retained; converted amounts appear below",
+  "所選期間淨損益": "Selected-period net P&L",
+  "淨損益（原幣別）": "Net P&L (original currency)",
+  "總交易筆數": "Total trades",
+  "交易總筆數": "Total trades",
+  "持倉時間（小時）": "Holding time (hours)",
+  "勝率 (%)": "Win rate (%)",
+  "佔本幣別淨損益 {0}%": "{0}% of net P&L in this currency",
+  "所選期間尚無交易。": "No trades in the selected period."
 }
