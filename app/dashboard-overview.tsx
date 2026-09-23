@@ -12,7 +12,11 @@ export function TotalPnl({trades,currency,baseCurrency='auto'}:{trades:Trade[];c
 return <section className="metric primary-metric"><div className="metric-label">{tx("總損益 ")}<TrendingUp size={18}/></div>{currencyGroups(trades,currency).map(g=><div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={dashboardStats(g.trades).net>=0?'positive':'negative'}>{amount(dashboardStats(g.trades).net)}<ConvertedMoney amount={dashboardStats(g.trades).net} currency={g.currency} baseCurrency={baseCurrency}/></strong></div>)}<p className="metric-meta">{tx("全部期間 · 已扣除已知費用")}</p><CombinedProfit trades={trades} baseCurrency={baseCurrency}/></section>;}
 export function TotalTradeCount({trades,onAll}:{trades:Trade[];onAll:()=>void}){
  const {t:tx}=useI18n();
-return <button className="metric metric-link total-trade-count" onClick={onAll}><div className="metric-label">{tx("總交易筆數 ")}<BookOpen size={18}/></div>{([['futures',tx("美國期貨")],['crypto',tx("加密貨幣")],['us-stocks',tx("美股現貨")],['tw-stocks',tx("台股")],['cn-stocks',tx("A股")],['hk-stocks',tx("港股")],['all',tx("全部")]] as const).map(([market,label])=><div key={market} className={'currency-stat '+(market==='all'?'count-all':'')}><span>{label}</span><strong>{market==='all'?trades.length:trades.filter(t=>t.market===market).length}<em>{tx("筆")}</em></strong></div>)}<p className="metric-meta">{tx("全部期間 · 點選查看交易")}</p></button>;}
+ const rows=([
+  ['futures',tx("美國期貨")],['crypto',tx("加密貨幣")],['us-stocks',tx("美股現貨")],['tw-stocks',tx("台股")],['cn-stocks',tx("A股")],['hk-stocks',tx("港股")],['all',tx("全部")],
+ ] as const).map(([market,label])=>({market,label,count:market==='all'?trades.length:trades.filter(trade=>trade.market===market).length})).filter(row=>row.count>0);
+ return <button className="metric metric-link total-trade-count" onClick={onAll}><div className="metric-label">{tx("總交易筆數 ")}<BookOpen size={18}/></div>{rows.map(row=><div key={row.market} className={`currency-stat ${row.market==='all'?'count-all':''}`}><span>{row.label}</span><strong>{row.count}<em>{tx("筆")}</em></strong></div>)}<p className="metric-meta">{tx("全部期間 · 點選查看交易")}</p></button>;
+}
 export default function DashboardOverview({trades,currency,baseCurrency='auto',onTrade,onMonth,onDay,onCalendar,periodCaption='本月'}:{trades:Trade[];currency:CurrencyFilter;baseCurrency?:string;periodCaption?:string;onTrade:(t:Trade)=>void;onMonth:()=>void;onDay:(date:string)=>void;onCalendar:()=>void}){
  const {t:tx}=useI18n();
 
