@@ -8,8 +8,10 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {bestDayShare,holdingTimeBucket,holdingTimeLabel}=require('./trade-status.cjs');
+const {averagePnl,bestDayShare,holdingTimeBucket,holdingTimeLabel}=require('./trade-status.cjs');
 
+assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
+assert.equal(averagePnl([]),0,'empty periods have no average P&L');
 assert.equal(bestDayShare(80,[80,-30]),100,'loss days must not inflate a best-day share beyond 100%');
 assert.equal(bestDayShare(20,[20,10,-10]),2/3*100);
 assert.equal(bestDayShare(-5,[-5,-10]),null,'no positive days have no positive-share percentage');

@@ -25,3 +25,4 @@ export function bucketStats<T extends string>(trades:Trade[],bucket:(t:Trade)=>T
 export function disciplineRate(trades:Trade[]){if(!trades.length)return 0;return trades.filter(t=>/計畫|規則|停損|等待|紀律|風險|倉位|確認/i.test(`${t.strategy} ${t.notes}`)).length/trades.length*100;}
 export function overtradeRate(trades:Trade[]){const by=new Map<string,number>();for(const t of trades)by.set(t.exitTime.slice(0,10),(by.get(t.exitTime.slice(0,10))||0)+1);return by.size?[...by.values()].filter(n=>n>3).length/by.size*100:0;}
 export function averageLoss(trades:Trade[]){const losses=trades.map(pnl).filter(n=>n<0);return losses.length?losses.reduce((s,n)=>s+n,0)/losses.length:0;}
+export function averagePnl(trades:Trade[]){return trades.length?trades.reduce((sum,trade)=>sum+pnl(trade),0)/trades.length:0;}

@@ -55,3 +55,5 @@
 @media(max-width:1250px){.status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.best-day-card{grid-column:span 2}}
 @media(max-width:900px){.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.status-full{grid-column:1/-1}.time-chart-grid{grid-template-columns:1fr}}
 @media(max-width:600px){.status-grid{grid-template-columns:1fr}.status-full,.best-day-card{grid-column:auto}.summary-columns{grid-template-columns:1fr}.status-card{padding:15px}.status-hero{grid-template-columns:minmax(0,1fr) 100px}.score-gauge{width:92px;height:92px}.score-gauge:after{inset:14px}.status-chart{height:290px}.time-chart-product{padding:10px 7px 6px}.time-chart-product>header{align-items:flex-start;flex-direction:column;gap:3px}.status-switch button{padding:5px 6px}.best-day-top>strong{font-size:15px}.best-day-share strong{font-size:18px}}
+
+.status-chart,.status-chart .recharts-surface{cursor:crosshair}.status-chart .recharts-tooltip-cursor{stroke:var(--foreground)!important;stroke-opacity:.92!important;stroke-width:2px!important;stroke-dasharray:3 3!important}
