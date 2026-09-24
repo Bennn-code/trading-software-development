@@ -18,7 +18,7 @@ export type ApiImportGuide = {
   notes?: string[];
   availability?: 'normal' | 'external-setup' | 'local-only';
   /** A site-side connector that accepts one-time credentials and implements fixed read endpoints. */
-  liveConnector?: 'bybit-options' | 'bitget-usdt-futures' | 'okx-usdt-swap' | 'kucoin-uta-usdt-futures';
+  liveConnector?: 'bybit-closed-pnl' | 'bitget-usdt-futures' | 'okx-usdt-swap' | 'kucoin-uta-usdt-futures' | 'bingx-usdt-swap' | 'mexc-usdt-contracts';
 };
 
 /**
@@ -36,10 +36,10 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'bybit', name: 'Bybit', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['拜比特'],
-    source: 'https://bybit-exchange.github.io/docs/v5/position/close-position', credentialType: 'API Key + Secret', readPermission: '此串接只會向固定的已平倉選擇權查詢端點發送 GET；仍請在 Bybit 將 API Key 設為 Read-Only，關閉 Trade、Transfer 和 Withdraw。',
-    steps: ['登入 Bybit API Management／API 管理，建立專用 API Key。', '權限只選 Read-Only，關閉 Trade、Transfer、Withdraw；如可設定 IP 白名單，請依 Bybit 建議設定。', '在本站輸入 API Key 和 Secret，選擇日期區間後讀取已平倉 USDT 選擇權。', '先逐筆核對預覽資料，再勾選並按儲存；本站目前不讀取現貨或其他合約類型。'],
-    notes: ['本站目前只支援 Bybit USDT 選擇權已平倉紀錄，API 最多查詢最近六個月；每次最多預覽 50 筆。金鑰只用於當次伺服器查詢，不會寫入資料庫或瀏覽器儲存。'],
-    liveConnector: 'bybit-options',
+    source: 'https://bybit-exchange.github.io/docs/v5/position/close-pnl', credentialType: 'API Key + Secret', readPermission: '此串接只會向固定的已平倉損益查詢端點發送 GET；仍請在 Bybit 將 API Key 設為 Read-Only，關閉 Trade、Transfer 和 Withdraw。',
+    steps: ['登入 Bybit API Management／API 管理，建立專用 API Key。', '權限只選 Read-Only，關閉 Trade、Transfer、Withdraw；如可設定 IP 白名單，請依 Bybit 建議設定。', '在本站輸入 API Key 和 Secret，選擇 USDT 選擇權或 USDT 線性合約及日期區間。', '先逐筆核對預覽資料，再勾選並按儲存；本站不讀取現貨、USDC 線性合約或反向合約。'],
+    notes: ['選擇權 API 最多查詢最近六個月；USDT 線性合約最多查詢最近兩年，每次最多預覽 50 筆。官方線性合約資料沒有持倉最初開倉時間，本站會暫以平倉時間填入進場時間，請在預覽中修正；手續費僅作明細，不會從交易所損益重複扣除。金鑰只用於當次伺服器查詢，不會寫入資料庫或瀏覽器儲存。'],
+    liveConnector: 'bybit-closed-pnl',
   },
   {
     id: 'okx', name: 'OKX', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['歐易'],
@@ -50,9 +50,10 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'bingx', name: 'BingX', category: '加密貨幣', market: 'crypto', region: 'crypto',
-    source: 'https://github.com/BingX-API/api-ai-skills/blob/main/skills/references/authentication.md', credentialType: 'API Key + Secret', readPermission: '只允許查詢資料；關閉交易與提款權限。',
-    steps: ['登入 BingX，開啟 API Management／API 管理。', '建立只讀 API Key，確認不能下單、取消委託、轉帳或提款。', '選擇日期區間和市場，再查詢帳戶成交紀錄。'],
-    notes: ['BingX 不同現貨、永續合約 API 的歷史資料欄位及期間不同。'],
+    source: 'https://bingx-api.github.io/docs-v3/#/en/Swap/Trades%20Endpoints/Query%20Position%20History', credentialType: 'API Key + Secret', readPermission: '本站只讀取 BingX USDT 永續合約已完整平倉部位；程式只呼叫固定的歷史持倉 GET 端點。API Key 請維持唯讀，關閉交易與資金操作權限。',
+    steps: ['登入 BingX API Management／API 管理並建立專用 API Key。', '保留唯讀權限；不要授予交易或資金操作權限，並建議設定 IP 白名單。', '輸入 API Key 和 Secret、USDT 永續合約代碼（例如 BTC-USDT）及日期區間。', '核對逐筆預覽後再選取並儲存；本站只匯入該商品的已完整平倉部位。'],
+    notes: ['官方歷史持倉端點最多查詢最近三個月；每次需指定一個 USDT 永續合約代碼。現貨、USDC 合約及未平倉部位不在本站匯入範圍。'],
+    liveConnector: 'bingx-usdt-swap',
   },
   {
     id: 'bitget', name: 'Bitget', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['Bitget'],
@@ -63,15 +64,16 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'mexc', name: 'MEXC', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['抹茶'],
-    source: 'https://mexcdevelop.github.io/apidocs/spot_v3_en/', credentialType: 'API Key + Secret', readPermission: '只允許 Spot Account Read／期貨讀取；關閉交易、轉帳與提款。',
-    steps: ['登入 MEXC，前往 API 管理並建立 API Key。', '只選帳戶讀取或交易紀錄讀取權限，不開啟交易、轉帳、提款。', '選擇市場與日期區間；若超出單次查詢限制，需分段匯入。'],
-    notes: ['現貨與合約使用不同 API 權限；可查期間也可能不同。'],
+    source: 'https://mexcdevelop.github.io/apidocs/contract_v1_en/', credentialType: 'API Key + Secret', readPermission: '本站只讀取 MEXC USDT 合約已完整平倉部位；程式只呼叫固定的歷史持倉 GET 端點。API Key 請只開啟 Trade Read，關閉交易、轉帳與提款。',
+    steps: ['登入 MEXC API 管理並建立專用 API Key。', '只開啟合約 Trade Read／讀取權限；不要開啟交易、轉帳或提款。', '輸入 API Key 和 Secret，再選擇日期區間；可填合約代碼縮小查詢範圍（例如 BTC_USDT）。', '核對逐筆預覽後再選取並儲存；本站只匯入已完整平倉的 USDT 合約部位。'],
+    notes: ['官方合約歷史持倉 API 每頁最多 100 筆，且不接受日期參數；本站會掃描最多 2,000 筆近期資料後依日期篩選。端點沒有逐筆交易手續費欄位，本站不會自行推算。超出範圍時請縮小商品範圍或改用 CSV。現貨不在本站 API 匯入範圍。'],
+    liveConnector: 'mexc-usdt-contracts',
   },
   {
     id: 'pionex', name: 'Pionex', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['派網'],
     source: 'https://www.pionex.com/docs/api-docs/futures-api/general-info/authentication', credentialType: 'API Key + Secret', readPermission: '僅啟用 Enable reading；關閉 Enable trading 和 Enable transfer。',
     steps: ['登入 Pionex，前往 API Key 管理。', '建立 API Key，只啟用 Enable reading。', '確認 Enable trading 和 Enable transfer 都關閉，再選日期區間。'],
-    notes: ['官方將 reading、trading、transfer 權限分開；此匯入只需要 reading。'],
+    notes: ['官方歷史持倉 API 目前回傳持倉量與結算欄位，但不提供每筆的平倉均價和已實現損益；本站無法安全還原成完整交易。請先匯出 CSV／Excel 匯入。'],
   },
   {
     id: 'kucoin', name: 'KuCoin', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['庫幣', '库币'],

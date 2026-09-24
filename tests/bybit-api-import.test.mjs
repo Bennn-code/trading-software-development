@@ -11,7 +11,7 @@ for (const name of ['trades', 'screenshot-import', 'validation', 'bybit-api']) {
   code = code.replaceAll('"./trades"', '"./trades.cjs"').replaceAll('"./screenshot-import"', '"./screenshot-import.cjs"');
   fs.writeFileSync(`work/${name}.cjs`, code);
 }
-const { bybitHmacSha256, mapBybitClosedOption } = require('./bybit-api.cjs');
+const { bybitHmacSha256, mapBybitClosedOption, mapBybitClosedPnl } = require('./bybit-api.cjs');
 const { tradeSchema } = require('./validation.cjs');
 const { pnl } = require('./trades.cjs');
 
@@ -42,4 +42,24 @@ assert.equal(await mapBybitClosedOption({ ...source, symbol: source.symbol.repla
 assert.equal(await mapBybitClosedOption({ ...source, closeTime: source.openTime - 1 }, 'test-user', 'UTC'), null, 'invalid position time order is skipped');
 assert.equal(await mapBybitClosedOption({ ...source, totalPnl: 'not-a-number' }, 'test-user', 'UTC'), null, 'invalid P&L rows are skipped');
 
-console.log('Passed Bybit HMAC, USDT closed-option mapping, timezone conversion, net P&L, stable IDs, and invalid-row guards.');
+const closedPosition = {
+  symbol: 'BTCUSDT', side: 'Sell', qty: '0.2', closedSize: '0.2', avgEntryPrice: '60000', avgExitPrice: '61000',
+  closedPnl: '8.25', openFee: '0.10', closeFee: '0.12', createdTime: String(Date.parse('2026-09-11T02:00:00.000Z')),
+  updatedTime: String(Date.parse('2026-09-11T02:00:01.000Z')), orderId: 'close-order-1', execType: 'Trade',
+};
+const linearTrade = await mapBybitClosedPnl(closedPosition, 'test-user', 'Asia/Taipei');
+assert.ok(linearTrade);
+assert.equal(linearTrade.side, 'long', 'a Sell closing order closes a long position');
+assert.equal(linearTrade.currency, 'USDT');
+assert.equal(linearTrade.entryTime, '2026-09-11T10:00');
+assert.equal(linearTrade.exitTime, linearTrade.entryTime, 'the closed-PnL endpoint does not provide original position open time');
+assert.equal(linearTrade.commission, 0.22);
+assert.equal(linearTrade.netOverride, 8.25);
+assert.equal(pnl(linearTrade), 8.25, 'exchange-reported closed P&L must not have fees deducted twice');
+assert.equal(tradeSchema.parse(linearTrade).currency, 'USDT');
+assert.equal((await mapBybitClosedPnl(closedPosition, 'test-user', 'Asia/Taipei')).id, linearTrade.id, 'linear re-import IDs must stay stable');
+assert.equal(await mapBybitClosedPnl({ ...closedPosition, symbol: 'BTCUSDC' }, 'test-user', 'UTC'), null, 'unsupported settlement currencies are skipped');
+assert.equal(await mapBybitClosedPnl({ ...closedPosition, execType: 'SessionSettlePnL' }, 'test-user', 'UTC'), null, 'settlement events are not mapped as closed trades');
+assert.equal(await mapBybitClosedPnl({ ...closedPosition, closedPnl: 'not-a-number' }, 'test-user', 'UTC'), null, 'invalid closed P&L rows are skipped');
+
+console.log('Passed Bybit HMAC, option and USDT-linear mapping, timezone conversion, exchange P&L, stable IDs, and invalid-row guards.');

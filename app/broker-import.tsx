@@ -43,9 +43,13 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   const [apiPassphrase, setApiPassphrase] = useState('');
   const [apiSymbol, setApiSymbol] = useState('');
   const [apiKeyVersion, setApiKeyVersion] = useState<'2' | '3'>('3');
+  const [apiBybitCategory, setApiBybitCategory] = useState<'option' | 'linear'>('option');
 
   const guide = brokerGuides.find(item => item.id === provider);
   const apiGuide = apiImportGuides.find(item => item.id === apiProvider);
+  const apiRequiresPassphrase = !!apiGuide?.liveConnector && ['bitget-usdt-futures', 'okx-usdt-swap', 'kucoin-uta-usdt-futures'].includes(apiGuide.liveConnector);
+  const apiRequiresSymbol = !!apiGuide?.liveConnector && ['kucoin-uta-usdt-futures', 'bingx-usdt-swap'].includes(apiGuide.liveConnector);
+  const apiShowsSymbol = !!apiGuide?.liveConnector && ['kucoin-uta-usdt-futures', 'bingx-usdt-swap', 'mexc-usdt-contracts'].includes(apiGuide.liveConnector);
   const visibleGuides = useMemo(() => searchBrokerGuides(search, region), [search, region]);
   const visibleApiGuides = useMemo(() => searchApiImportGuides(search, region), [search, region]);
   const eligible = useMemo(() => rows.flatMap(row => {
@@ -68,7 +72,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   }
 
   function selectApiGuide(next: typeof apiImportGuides[number]) {
-    if (apiProvider !== next.id) { setApiKey(''); setApiSecret(''); setApiPassphrase(''); setApiSymbol(''); setApiKeyVersion('3'); }
+    if (apiProvider !== next.id) { setApiKey(''); setApiSecret(''); setApiPassphrase(''); setApiSymbol(''); setApiKeyVersion('3'); setApiBybitCategory('option'); }
     setApiProvider(next.id);
     setMarket(next.market);
     setHelp(true);
@@ -106,6 +110,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     setApiPassphrase('');
     setApiSymbol('');
     setApiKeyVersion('3');
+    setApiBybitCategory('option');
     setSearch('');
     setRegion('all');
     setError('');
@@ -125,6 +130,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     setApiPassphrase('');
     setApiSymbol('');
     setApiKeyVersion('3');
+    setApiBybitCategory('option');
     setError('');
     setBusy('');
     setDuplicates({});
@@ -177,7 +183,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   }
 
   async function importApiTrades() {
-    if (!apiGuide?.liveConnector || !apiKey.trim() || !apiSecret.trim() || (apiGuide.liveConnector !== 'bybit-options' && !apiPassphrase.trim()) || (apiGuide.liveConnector === 'kucoin-uta-usdt-futures' && !apiSymbol.trim()) || !apiDateValid) return;
+    if (!apiGuide?.liveConnector || !apiKey.trim() || !apiSecret.trim() || (apiRequiresPassphrase && !apiPassphrase.trim()) || (apiRequiresSymbol && !apiSymbol.trim()) || !apiDateValid) return;
     const submittedKey = apiKey.trim(), submittedSecret = apiSecret.trim(), submittedPassphrase = apiPassphrase;
     setBusy('正在安全讀取交易所資料…');
     setError('');
@@ -185,12 +191,12 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
       const response = await fetch(`/api/imports/api/${apiProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: submittedKey, apiSecret: submittedSecret, ...(apiGuide.liveConnector !== 'bybit-options' ? { apiPassphrase: submittedPassphrase } : {}), ...(apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? { apiKeyVersion, symbol: apiSymbol.trim().toUpperCase() } : {}), startDate: apiStart, endDate: apiEnd }),
+        body: JSON.stringify({ apiKey: submittedKey, apiSecret: submittedSecret, ...(apiGuide.liveConnector === 'bybit-closed-pnl' ? { category: apiBybitCategory } : {}), ...(apiRequiresPassphrase ? { apiPassphrase: submittedPassphrase } : {}), ...(apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? { apiKeyVersion } : {}), ...(apiShowsSymbol && apiSymbol.trim() ? { symbol: apiSymbol.trim().toUpperCase() } : {}), startDate: apiStart, endDate: apiEnd }),
       });
       const data = await response.json() as { trades?: Trade[]; warnings?: string[]; error?: string };
       if (!response.ok) throw new Error(data.error || 'API 查詢失敗，請確認唯讀金鑰和日期。');
-      if (!data.trades?.length) throw new Error(apiGuide.liveConnector === 'bybit-options' ? '此日期區間沒有符合條件的 Bybit USDT 選擇權平倉紀錄。' : '此日期區間沒有可匯入的已平倉紀錄，請確認商品代碼與查詢範圍。');
-      const parsed: ParsedBrokerTrade[] = data.trades.map((trade, index) => ({ trade, warnings: index === 0 ? data.warnings ?? [] : [], selected: true, confirmed: false, sourceRow: index + 1 }));
+      if (!data.trades?.length) throw new Error(apiGuide.liveConnector === 'bybit-closed-pnl' ? '此日期區間沒有符合條件的 Bybit 平倉紀錄。' : '此日期區間沒有可匯入的已平倉紀錄，請確認商品代碼與查詢範圍。');
+      const parsed: ParsedBrokerTrade[] = data.trades.map((trade, index) => ({ trade, warnings: index === 0 || (apiGuide.liveConnector === 'bybit-closed-pnl' && apiBybitCategory === 'linear') ? data.warnings ?? [] : [], selected: true, confirmed: false, sourceRow: index + 1 }));
       setRows(parsed);
       setActive(0);
       setDuplicates({});
@@ -272,7 +278,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     <DialogContent className="broker-import-dialog">
       <DialogHeader>
         <DialogTitle>{tx('交易所匯入')}</DialogTitle>
-        <DialogDescription>{method === 'file' ? tx('只讀取你選擇的 CSV／Excel；先預覽核對，再寫入交易紀錄。') : tx('API 與檔案匯入分開顯示；Bybit、Bitget、OKX 和 KuCoin 提供網站唯讀連線，其他來源仍是支援指南。本站沒有下單、轉帳或提款功能。')}</DialogDescription>
+        <DialogDescription>{method === 'file' ? tx('只讀取你選擇的 CSV／Excel；先預覽核對，再寫入交易紀錄。') : tx('API 與檔案匯入分開顯示；Bybit、Bitget、OKX、KuCoin、BingX 和 MEXC 提供網站唯讀連線，其他來源仍是支援指南。本站沒有下單、轉帳或提款功能。')}</DialogDescription>
       </DialogHeader>
 
       {!rows.length ? <>
@@ -310,15 +316,17 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
             {apiGuide.safetyMode === 'site-query-only' && <div className="api-availability-note api-security-note"><AlertTriangle size={17}/><span>{tx('此服務的 API 本身包含金融操作。本站目前不接受或儲存 API 金鑰，也沒有 API 連線；日後只有固定查詢端點會納入接頭。程式限制不能防止金鑰在本站以外遭竊或被其他程式使用。')}</span></div>}
             {help && <div className="guide-body api-guide-body"><ol>{apiGuide.steps.map((step, index) => <li key={step}><b>{index + 1}.</b><span>{tx(step)}</span></li>)}</ol>{apiGuide.notes?.map(note => <p key={note}><AlertTriangle size={15}/>{tx(note)}</p>)}<a href={apiGuide.source} target="_blank" rel="noreferrer">{tx('查看官方 API 文件')} <ExternalLink size={13}/></a></div>}
             {selectedApiMarket && <label className="broker-market"><span>{tx('交易市場')}</span><Select value={market} onValueChange={value => setMarket(value as Trade['market'])}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{apiGuide.markets?.map(value => <SelectItem key={value} value={value}>{tx(marketNames[value])}</SelectItem>)}</SelectContent></Select></label>}
-            <div className="api-date-panel"><div className="api-date-title"><CalendarDays size={17}/><strong>{tx('選擇要讀取的成交日期區間')}</strong></div><div className="api-date-fields"><label><span>{tx('開始日期')}</span><input type="date" value={apiStart} max={apiEnd || dateInput(new Date())} onChange={event => setApiStart(event.target.value)}/></label><label><span>{tx('結束日期')}</span><input type="date" value={apiEnd} min={apiStart} max={dateInput(new Date())} onChange={event => setApiEnd(event.target.value)}/></label></div>{!apiDateValid && <p className="form-error">{tx('請確認日期順序正確，且結束日期不可晚於今天。')}</p>}<p className="field-hint">{tx(apiGuide.liveConnector === 'bybit-options' ? 'Bybit 以 UTC 日期查詢，僅限最近六個月；較長區間會依官方上限分段讀取。' : apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? 'KuCoin UTA 最多查詢最近三個月，單次上限七天；本站會自動分段。' : apiGuide.liveConnector ? '此來源最多查詢最近三個月的已平倉部位。' : '交易所 API 的歷史查詢期間各有上限，超過時會分段讀取。')}</p></div>
+            {apiGuide.liveConnector === 'bybit-closed-pnl' && <label className="broker-market"><span>{tx('Bybit 商品類型')}</span><Select value={apiBybitCategory} onValueChange={value => setApiBybitCategory(value as 'option' | 'linear')}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="option">{tx('USDT 選擇權')}</SelectItem><SelectItem value="linear">{tx('USDT 線性合約')}</SelectItem></SelectContent></Select></label>}
+            <div className="api-date-panel"><div className="api-date-title"><CalendarDays size={17}/><strong>{tx('選擇要讀取的成交日期區間')}</strong></div><div className="api-date-fields"><label><span>{tx('開始日期')}</span><input type="date" value={apiStart} max={apiEnd || dateInput(new Date())} onChange={event => setApiStart(event.target.value)}/></label><label><span>{tx('結束日期')}</span><input type="date" value={apiEnd} min={apiStart} max={dateInput(new Date())} onChange={event => setApiEnd(event.target.value)}/></label></div>{!apiDateValid && <p className="form-error">{tx('請確認日期順序正確，且結束日期不可晚於今天。')}</p>}<p className="field-hint">{tx(apiGuide.liveConnector === 'bybit-closed-pnl' ? (apiBybitCategory === 'option' ? 'Bybit 以 UTC 日期查詢；USDT 選擇權最多查詢最近六個月，每次查詢上限七天並自動分段。' : 'Bybit 以 UTC 日期查詢；USDT 線性合約最多查詢最近兩年，每次查詢上限七天並自動分段。') : apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? 'KuCoin UTA 最多查詢最近三個月，單次上限七天；本站會自動分段。' : apiGuide.liveConnector === 'bingx-usdt-swap' ? 'BingX 只能查詢最近三個月；每次需填一個 USDT 永續合約代碼。' : apiGuide.liveConnector === 'mexc-usdt-contracts' ? 'MEXC 歷史持倉 API 沒有日期參數；本站最多掃描近期 2,000 筆，再依你選的日期篩選。' : apiGuide.liveConnector ? '此來源最多查詢最近三個月的已平倉部位。' : '交易所 API 的歷史查詢期間各有上限，超過時會分段讀取。')}</p></div>
             {apiGuide.availability === 'local-only' ? <div className="api-availability-note local"><AlertTriangle size={17}/><span>{tx('此 API 需要在你的電腦執行本機交易平台連接器；目前網站無法直接連到本機服務。')}</span></div> : apiGuide.availability === 'external-setup' ? <div className="api-availability-note"><AlertTriangle size={17}/><span>{tx('此交易所要求整合方先註冊／開通 OAuth 應用；本網站尚未完成這項申請。')}</span></div> : null}
             {apiGuide.liveConnector ? <div className="api-credential-form">
-              <div className="api-credential-notice"><ShieldCheck size={17}/><span>{tx(apiGuide.liveConnector === 'bybit-options' ? '金鑰只會透過 HTTPS 傳送至本站固定唯讀 API；只在這次讀取時使用，不會保存到帳號、資料庫、Cookie 或瀏覽器儲存。本站只呼叫 Bybit 已平倉選擇權 GET 查詢端點。' : '憑證只會透過 HTTPS 傳送至本站固定唯讀 API，只在這次查詢時使用，不會保存到帳號、資料庫、Cookie 或瀏覽器儲存。本站只會向所選平台的固定已平倉紀錄 GET 端點查詢。')}</span></div>
+              <div className="api-credential-notice"><ShieldCheck size={17}/><span>{tx(apiGuide.liveConnector === 'bybit-closed-pnl' ? '金鑰只會透過 HTTPS 傳送至本站固定唯讀 API；只在這次讀取時使用，不會保存到帳號、資料庫、Cookie 或瀏覽器儲存。本站只呼叫 Bybit 已平倉損益 GET 查詢端點。' : '憑證只會透過 HTTPS 傳送至本站固定唯讀 API，只在這次查詢時使用，不會保存到帳號、資料庫、Cookie 或瀏覽器儲存。本站只會向所選平台的固定已平倉紀錄 GET 端點查詢。')}</span></div>
               <label>{tx('API Key')}<input type="password" autoComplete="off" spellCheck={false} maxLength={128} value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={tx('貼上唯讀 API Key')}/></label>
               <label>{tx('API Secret')}<input type="password" autoComplete="new-password" spellCheck={false} maxLength={256} value={apiSecret} onChange={event => setApiSecret(event.target.value)} placeholder={tx('貼上 API Secret')}/></label>
-              {apiGuide.liveConnector !== 'bybit-options' && <label>{tx('API Passphrase')}<input type="password" autoComplete="new-password" spellCheck={false} maxLength={256} value={apiPassphrase} onChange={event => setApiPassphrase(event.target.value)} placeholder={tx('貼上 API Passphrase')}/></label>}
-              {apiGuide.liveConnector === 'kucoin-uta-usdt-futures' && <><label>{tx('KuCoin API Key 版本')}<Select value={apiKeyVersion} onValueChange={value => setApiKeyVersion(value as '2' | '3')}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="3">V3</SelectItem><SelectItem value="2">V2</SelectItem></SelectContent></Select></label><label>{tx('USDT-M 合約代碼')}<input type="text" autoComplete="off" spellCheck={false} maxLength={30} value={apiSymbol} onChange={event => setApiSymbol(event.target.value.toUpperCase())} placeholder={tx('例如 XBTUSDTM')}/></label></>}
-              <button type="button" className="primary-button" disabled={!!busy || !apiKey.trim() || !apiSecret.trim() || (apiGuide.liveConnector !== 'bybit-options' && !apiPassphrase.trim()) || (apiGuide.liveConnector === 'kucoin-uta-usdt-futures' && !apiSymbol.trim()) || !apiDateValid} onClick={() => void importApiTrades()}><KeyRound size={17}/>{tx('唯讀連線並預覽平倉紀錄')}</button>
+              {apiRequiresPassphrase && <label>{tx('API Passphrase')}<input type="password" autoComplete="new-password" spellCheck={false} maxLength={256} value={apiPassphrase} onChange={event => setApiPassphrase(event.target.value)} placeholder={tx('貼上 API Passphrase')}/></label>}
+              {apiGuide.liveConnector === 'kucoin-uta-usdt-futures' && <label>{tx('KuCoin API Key 版本')}<Select value={apiKeyVersion} onValueChange={value => setApiKeyVersion(value as '2' | '3')}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="3">V3</SelectItem><SelectItem value="2">V2</SelectItem></SelectContent></Select></label>}
+              {apiShowsSymbol && <label>{tx(apiGuide.liveConnector === 'bingx-usdt-swap' ? 'USDT 永續合約代碼' : 'USDT 合約代碼')}{apiGuide.liveConnector === 'mexc-usdt-contracts' && <small>{tx('選填；留空時掃描所有商品')}</small>}<input type="text" autoComplete="off" spellCheck={false} maxLength={30} value={apiSymbol} onChange={event => setApiSymbol(event.target.value.toUpperCase())} placeholder={tx(apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? '例如 XBTUSDTM' : apiGuide.liveConnector === 'bingx-usdt-swap' ? '例如 BTC-USDT' : '例如 BTC_USDT')}/></label>}
+              <button type="button" className="primary-button" disabled={!!busy || !apiKey.trim() || !apiSecret.trim() || (apiRequiresPassphrase && !apiPassphrase.trim()) || (apiRequiresSymbol && !apiSymbol.trim()) || !apiDateValid} onClick={() => void importApiTrades()}><KeyRound size={17}/>{tx('唯讀連線並預覽平倉紀錄')}</button>
             </div> : <div className="api-not-ready" role="status"><KeyRound size={17}/><span>{tx('此來源目前尚無實際 API 連接器，所以不接受 API 金鑰；此頁只提供支援名單、權限指南和日期區間。')}</span></div>}
             <p className="field-hint">{tx('連線只會讀取資料；金鑰必須在交易所端設為唯讀並停用交易、轉帳、提款。程式限制不能保護在本站以外遭竊的金鑰。')}</p>
           </section> : <div className="broker-empty"><KeyRound/><p>{tx('請先選擇支援唯讀 API 的交易所或券商。')}</p></div>}

@@ -18,6 +18,11 @@ export async function hmacSha256Hex(secret: string, message: string) {
   return hex(await hmac(secret, message));
 }
 
+/** Preserve provider position IDs that exceed JavaScript's safe integer range. */
+export function preserveLargeJsonPositionIds(body: string) {
+  return body.replace(/("positionId"\s*:\s*)(\d{16,})(?=\s*[,}])/g, '$1"$2"');
+}
+
 export async function hmacSha256Base64(secret: string, message: string) {
   return base64(await hmac(secret, message));
 }
@@ -35,7 +40,7 @@ function timestamp(value: unknown) {
 }
 
 type PositionInput = {
-  provider: 'bitget' | 'okx' | 'kucoin';
+  provider: 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc';
   identity: string;
   symbol: string;
   side: string;
@@ -57,7 +62,7 @@ async function mapPosition(row: PositionInput, ownerId: string, timezone: string
   const commission = row.commission == null ? null : number(row.commission);
   const fees = row.fees == null ? null : number(row.fees);
   const funding = row.funding == null ? null : number(row.funding);
-  if (!/^[A-Z0-9-]{2,30}$/.test(row.symbol) || !['long', 'short'].includes(side)
+  if (!/^[A-Z0-9_-]{2,30}$/.test(row.symbol) || !['long', 'short'].includes(side)
     || !Number.isFinite(openTime) || !Number.isFinite(closeTime) || closeTime < openTime
     || !Number.isFinite(entry) || entry <= 0 || !Number.isFinite(exit) || exit <= 0
     || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(net)
@@ -66,7 +71,7 @@ async function mapPosition(row: PositionInput, ownerId: string, timezone: string
 
   return {
     id: await stableImportId(ownerId, `${row.provider}:${row.identity}`, 0),
-    market: 'crypto', symbol: row.symbol, side: side as Trade['side'], account: `${row.provider === 'kucoin' ? 'KuCoin' : row.provider === 'okx' ? 'OKX' : 'Bitget'} API`, currency: 'USDT',
+    market: 'crypto', symbol: row.symbol, side: side as Trade['side'], account: `${row.provider === 'kucoin' ? 'KuCoin' : row.provider === 'okx' ? 'OKX' : row.provider === 'bingx' ? 'BingX' : row.provider === 'mexc' ? 'MEXC' : 'Bitget'} API`, currency: 'USDT',
     entryTime: localTime(new Date(openTime), timezone), exitTime: localTime(new Date(closeTime), timezone), timezone,
     entry, exit, quantity, multiplier: 1, fees, funding, strategy: '', notes: '', imageId: null,
     commission, transactionTax: null, netOverride: net, profitBasis: 'net',
@@ -113,5 +118,38 @@ export function mapKucoinUtaPosition(row: KucoinUtaHistoryPosition, ownerId: str
     provider: 'kucoin', identity: JSON.stringify([row.closeId, row.creationTime, row.closingTime]), symbol: row.symbol, side: row.side,
     openTime: row.creationTime, closeTime: row.closingTime, entry: row.entryPrice, exit: row.avgClosePrice || row.closePrice, quantity: row.maxSize, net: row.realizedPnL,
     commission: Math.abs(number(row.fee || 0)), fees: Math.abs(number(row.tax || 0)), funding: row.fundingFee ?? 0,
+  }, ownerId, timezone);
+}
+
+export type BingxHistoryPosition = {
+  positionId: string | number; symbol: string; currency?: string; positionSide: string;
+  openTime: string | number; updateTime: string | number; avgPrice: string; avgClosePrice: string;
+  netProfit: string; closePositionAmt: string; positionCommission?: string; totalFunding?: string;
+};
+
+export function mapBingxPosition(row: BingxHistoryPosition, ownerId: string, timezone: string) {
+  if (!row.symbol.endsWith('USDT') || (row.currency && row.currency !== 'USDT')) return Promise.resolve(null);
+  return mapPosition({
+    provider: 'bingx', identity: String(row.positionId), symbol: row.symbol, side: row.positionSide,
+    openTime: row.openTime, closeTime: row.updateTime, entry: row.avgPrice, exit: row.avgClosePrice, quantity: row.closePositionAmt, net: row.netProfit,
+    commission: row.positionCommission == null ? null : Math.abs(number(row.positionCommission)), funding: row.totalFunding ?? 0,
+  }, ownerId, timezone);
+}
+
+export type MexcHistoryPosition = {
+  positionId: string | number; symbol: string; positionType: string | number; state: string | number;
+  closeVol?: string | number; openAvgPrice?: string | number; closeAvgPrice?: string | number;
+  realised?: string | number; holdFee?: string | number;
+  createTime: string | number; updateTime: string | number;
+};
+
+export function mapMexcPosition(row: MexcHistoryPosition, ownerId: string, timezone: string) {
+  const closed = String(row.state) === '3';
+  const side = String(row.positionType) === '1' ? 'long' : String(row.positionType) === '2' ? 'short' : '';
+  if (!closed || !row.symbol.endsWith('_USDT')) return Promise.resolve(null);
+  return mapPosition({
+    provider: 'mexc', identity: String(row.positionId), symbol: row.symbol, side,
+    openTime: row.createTime, closeTime: row.updateTime, entry: row.openAvgPrice, exit: row.closeAvgPrice,
+    quantity: row.closeVol, net: row.realised, funding: row.holdFee ?? 0,
   }, ownerId, timezone);
 }

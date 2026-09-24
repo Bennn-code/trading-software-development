@@ -38,7 +38,7 @@ const legalModule = { exports: {} };
 new Function('exports', 'module', legalCompiled)(legalModule.exports, legalModule);
 const enText = { ...en, ...legalModule.exports.legalEnglish };
 const yueText = { ...yue, ...legalModule.exports.legalCantonese };
-assert.deepEqual(apiImportGuides.filter(guide => guide.liveConnector).map(guide => guide.id), ['bybit', 'okx', 'bitget', 'kucoin']);
+assert.deepEqual(apiImportGuides.filter(guide => guide.liveConnector).map(guide => guide.id), ['bybit', 'okx', 'bingx', 'bitget', 'mexc', 'kucoin']);
 for (const guide of apiImportGuides) {
   const localizedNames = /[\u3400-\u9fff]/.test(guide.name) ? [guide.name] : [];
   for (const text of [...localizedNames, guide.category, guide.credentialType, guide.readPermission, ...guide.steps, ...(guide.notes ?? [])]) {
@@ -53,11 +53,13 @@ for (const [, text] of uiSource.matchAll(/tx\('([^']+)'/g)) {
 }
 
 const connector = fs.readFileSync('app/api/imports/api/bybit/route.ts', 'utf8');
-assert.match(connector, /https:\/\/api\.bybit\.com\/v5\/position\/get-closed-positions/);
+assert.match(connector, /const path = category === 'option' \? '\/v5\/position\/get-closed-positions' : '\/v5\/position\/closed-pnl'/);
+assert.match(connector, /https:\/\/api\.bybit\.com\$\{path\}\?\$\{query\}/);
+assert.match(connector, /z\.enum\(\['option', 'linear'\]\)/, 'Bybit only exposes supported product categories');
 assert.match(connector, /method:\s*'GET'/);
 assert.match(connector, /redirect:\s*'error'/);
 assert.doesNotMatch(connector, /method:\s*'POST'/, 'the connector must never send write requests to Bybit');
 assert.doesNotMatch(connector, /apiSecret[^\n]{0,100}(?:INSERT|UPDATE|DELETE)|(?:INSERT|UPDATE|DELETE)[^\n]{0,100}apiSecret/i, 'API secrets must never be persisted');
 assert.match(uiSource, /setApiSecret\(''\)/, 'clear the secret from UI state after submitting or leaving the form');
 
-console.log(`Passed read-only API catalog checks for ${apiImportGuides.length} providers, the Bybit GET-only connector, and English/Cantonese guides.`);
+console.log(`Passed read-only API catalog checks for ${apiImportGuides.length} providers, the Bybit options/linear GET-only connector, and English/Cantonese guides.`);
