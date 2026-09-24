@@ -4,12 +4,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 fs.mkdirSync('work',{recursive:true});
 const require=createRequire(new URL('../work/',import.meta.url));
-for(const name of ['trades','validation','screenshot-import','vision','trade-duplicates']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
+for(const name of ['trades','validation','screenshot-import','vision','trade-duplicates','periods','report-period','reviews']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./periods"','"./periods.cjs"').replaceAll('"./report-period"','"./report-period.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
 const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade}=require('./trades.cjs');
 const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
 const {extractScreenshot}=require('./vision.cjs');
 const {findTradeMatches}=require('./trade-duplicates.cjs');
+const {reviewSaveSelection}=require('./reviews.cjs');
 const t={...newTrade(),profitBasis:'net',market:'crypto',symbol:'BTCUSDT',currency:'USDT',entry:100,exit:110,quantity:10,multiplier:1,positionValue:1000,leverage:10,marginMode:'isolated',fees:2,funding:3};
 assert.equal(initialMargin(t),100);assert.equal(pnl(t),95);
 assert.equal(pnl({...t,leverage:20}),95,'leverage must not multiply P&L twice');
@@ -31,6 +32,14 @@ for(const input of ['+','--10','1,2','Infinity','1e3','NaN'])assert.ok(Number.is
 for(const strategy of [undefined,null,''])assert.equal(tradeSchema.parse({...t,strategy}).strategy,'');
 assert.equal(tradeSchema.parse({...t,quantity:99,multiplier:20}).quantity,10,'server derives canonical quantity');
 assert.equal(tradeSchema.parse({...t,multiplier:20}).multiplier,1,'crypto ignores futures multiplier');
+const taxableStock=tradeSchema.parse({...newTrade(),market:'tw-stocks',symbol:'2330',currency:'TWD',entry:100,exit:110,quantity:100,transactionTax:-33});
+assert.equal(taxableStock.transactionTax,33,'stock transaction tax must survive schema normalization');
+assert.equal(pnl({...taxableStock,netOverride:1000,profitBasis:'gross'}),967,'stock tax is deducted from gross exchange-reported P&L');
+assert.equal(tradeSchema.parse({...t,transactionTax:33}).transactionTax,null,'crypto records do not retain securities transaction tax');
+assert.equal(tradeSchema.parse({...newTrade(),entry:100,exit:110,quantity:1,transactionTax:33}).transactionTax,null,'futures records do not retain securities transaction tax');
+const reviewPayload={kind:'custom',date:'2026-09-25',start:'2026-09-01',end:'2026-09-25',action:'save',strategy:'test'};
+assert.equal(reviewSaveSelection.safeParse(reviewPayload).success,true,'custom review payload should validate');
+assert.equal(reviewSaveSelection.safeParse({...reviewPayload,start:'2026-09-25',end:'2026-09-01'}).success,false,'reversed custom review dates should fail');
 assert.equal(tradeSchema.safeParse({...t,exitTime:'2026-02-30T12:00'}).success,false);
 assert.equal(tradeSchema.safeParse({...t,leverage:0}).success,false);
 assert.equal(tradeSchema.safeParse({...t,positionValue:0}).success,false);

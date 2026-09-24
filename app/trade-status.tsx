@@ -15,6 +15,9 @@ type TimeBucket = { position: number; label: string; count: number; winRate: num
 type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; clock: TimeBucket[]; holding: TimeBucket[] };
 const fmt = (n: number) => (n > 0 ? '+' : '') + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const change = (current: number, previous: number) => previous === 0 ? null : (current - previous) / Math.abs(previous) * 100;
+function isSummary(value:unknown):value is Summary{if(!value||typeof value!=='object')return false;const summary=value as Partial<Summary>;return typeof summary.overview==='string'&&typeof summary.strategySummary==='string'&&typeof summary.reflectionSummary==='string'&&Array.isArray(summary.strengths)&&summary.strengths.every(item=>typeof item==='string')&&Array.isArray(summary.improvements)&&summary.improvements.every(item=>typeof item==='string')&&Array.isArray(summary.nextSteps)&&summary.nextSteps.every(item=>typeof item==='string');}
+function isCommunity(value:unknown):value is Community{if(!value||typeof value!=='object')return false;const data=value as Partial<Community>;return typeof data.sampleSize==='number'&&Array.isArray(data.mistakes)&&data.mistakes.every(row=>!!row&&typeof row.name==='string'&&typeof row.count==='number'&&typeof row.percent==='number')&&Array.isArray(data.profit)&&data.profit.every(row=>!!row&&typeof row.label==='string'&&typeof row.value==='number'&&typeof row.currency==='string')&&Array.isArray(data.returns)&&data.returns.every(row=>!!row&&typeof row.label==='string'&&typeof row.value==='number');}
+function isReviewResponse(value:unknown):value is {record?:{summary?:Summary|null}}{if(!value||typeof value!=='object')return false;const record=(value as {record?:unknown}).record;if(!record||typeof record!=='object')return false;const summary=(record as {summary?:unknown}).summary;return summary===null||isSummary(summary);}
 
 export default function TradeStatus({ trades, timezone, period, anchor, range, demo = false, signedIn = false, baseCurrency = 'auto' }: { trades: Trade[]; timezone: string; period: ReportPeriod; anchor: string; range: DateRange; demo?: boolean; signedIn?: boolean; baseCurrency?: string }) {
   const { t } = useI18n();
@@ -28,7 +31,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
   useEffect(() => {
     const controller = new AbortController();
     fetch('/api/trade-status/community?currency=' + encodeURIComponent(baseCurrency), { signal: controller.signal })
-      .then(response => response.ok ? response.json() : null).then(setCommunity).catch(() => {});
+      .then(async response => { if (!response.ok) return null; const payload: unknown = await response.json(); return isCommunity(payload) ? payload : null; }).then(setCommunity).catch(() => {});
     return () => controller.abort();
   }, [baseCurrency]);
 
@@ -36,7 +39,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     if (!signedIn || demo) return;
     const controller = new AbortController();
     const params = new URLSearchParams({ kind: period, date: anchor, start: range.start, end: range.end });
-    fetch('/api/reviews?' + params, { signal: controller.signal }).then(response => response.ok ? response.json() : null)
+    fetch('/api/reviews?' + params, { signal: controller.signal }).then(async response => { if (!response.ok) return null; const payload: unknown = await response.json(); return isReviewResponse(payload) ? payload : null; })
       .then(data => setSummary(data?.record?.summary || null)).catch(() => {});
     return () => controller.abort();
   }, [signedIn, demo, period, anchor, range.start, range.end]);
@@ -106,7 +109,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     setSummaryBusy(true); setSummaryError('');
     try {
       const response = await fetch('/api/reviews', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: period, date: anchor, start: range.start, end: range.end, action: 'generate' }) });
-      const result = await response.json();
+      const result = await response.json() as { error?: string; record?: { summary?: Summary | null } };
       if (!response.ok) throw new Error(result.error || t('AI 總結失敗'));
       setSummary(result.record?.summary || null);
     } catch (error) { setSummaryError(error instanceof Error ? error.message : t('AI 總結失敗')); }
@@ -123,7 +126,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
       <p>{t('依平均虧損、交易頻率與平均槓桿估算。')} {t('平均槓桿')} {data.leverage ? `${data.leverage.toFixed(1)}×` : t('未記錄')}</p>
     </Card>
 
-    <section className="panel status-card community-card"><header><div><Users/><h2>{t('本週結算排行')}</h2></div><div className="status-switch"><button className={ranking === 'profit' ? 'active' : ''} onClick={() => setRanking('profit')}>{t('金額')}</button><button className={ranking === 'returns' ? 'active' : ''} onClick={() => setRanking('returns')}>{t('百分比')}</button></div></header>{community && community.sampleSize >= 3 ? <><h3>{t('本平台本週最常犯的三個錯誤')}</h3>{community.mistakes.slice(0, 3).map(item => <Row key={item.name} name={t(item.name)} value={`${item.percent.toFixed(0)}% · ${item.count} ${t('次')}`}/>)}{(ranking === 'profit' ? community.profit : community.returns).map(item => <Row key={item.label} name={item.label} value={ranking === 'profit' ? `${fmt(item.value)} ${item.currency}` : `${fmt(item.value)}%`}/>)}</> : <Empty text={t('本週匿名樣本不足 3 位使用者，暫不顯示平台排行。')}/>}</section>
+    <section className="panel status-card community-card"><header><div><Users/><h2>{t('本週結算排行')}</h2></div><div className="status-switch"><button className={ranking === 'profit' ? 'active' : ''} onClick={() => setRanking('profit')}>{t('金額')}</button><button className={ranking === 'returns' ? 'active' : ''} onClick={() => setRanking('returns')}>{t('百分比')}</button></div></header>{community && community.sampleSize >= 3 ? <><h3>{t('本平台本週最常犯的三個錯誤')}</h3>{community.mistakes.slice(0, 3).map(item => <Row key={item.name} name={t(item.name)} value={`${item.percent.toFixed(0)}% · ${item.count} ${t('次')}`}/>)}{ranking === 'profit' ? community.profit.map(item => <Row key={item.label} name={item.label} value={`${fmt(item.value)} ${item.currency}`}/>) : community.returns.map(item => <Row key={item.label} name={item.label} value={`${fmt(item.value)}%`}/>)}</> : <Empty text={t('本週匿名樣本不足 3 位使用者，暫不顯示平台排行。')}/>}</section>
 
     <Card icon={<TrendingUp/>} title={t('最常交易商品')}>{data.symbols.map(([symbol, count]) => <Row key={symbol} name={symbol} value={`${count} ${t('筆')}`}/>)}</Card>
     <Card icon={<Activity/>} title={t('常犯錯誤')}>{data.mistakes.length ? data.mistakes.slice(0, 6).map(item => <Progress key={item.name} name={t(item.name)} value={item.percent} suffix={`${item.percent.toFixed(0)}% · ${item.count} ${t('次')}`}/>) : <Empty text={t('尚未在心得中辨識到常見錯誤。')}/>}</Card>

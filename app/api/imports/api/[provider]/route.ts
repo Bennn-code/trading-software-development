@@ -142,6 +142,7 @@ export async function POST(request: Request, { params }: Params) {
     if (!parsed.success) throw new ApiError('請填寫有效的 API Key、Secret 和日期。');
     const { apiKey, apiSecret, apiPassphrase, apiKeyVersion, symbol, startDate, endDate } = parsed.data;
     if (['bitget', 'okx', 'kucoin'].includes(provider) && !apiPassphrase) throw new ApiError('此交易所需要 API Passphrase。');
+    const passphrase = apiPassphrase ?? '';
     const start = dateMs(startDate), endExclusive = dateMs(endDate) + DAY;
     if (!Number.isFinite(start) || !Number.isFinite(endExclusive) || start >= endExclusive || endExclusive > Date.now() + DAY) throw new ApiError('請確認日期順序，結束日期不可晚於今天。');
     if (provider !== 'mexc' && start < oldestSupportedDate()) throw new ApiError('交易所只保留最近三個月的已平倉資料，請縮短日期區間。');
@@ -153,7 +154,7 @@ export async function POST(request: Request, { params }: Params) {
     if (provider === 'bitget') {
       let cursor = '', pageCount = 0;
       do {
-        const page = await requestBitgetPage(apiKey, apiSecret, apiPassphrase, start, endExclusive - 1, cursor);
+        const page = await requestBitgetPage(apiKey, apiSecret, passphrase, start, endExclusive - 1, cursor);
         sourceRows.push(...page.rows);
         cursor = page.rows.length === 100 ? page.next : '';
         pageCount++;
@@ -163,7 +164,7 @@ export async function POST(request: Request, { params }: Params) {
       let cursor = String(endExclusive), pageCount = 0;
       const seenCursors = new Set<string>();
       while (pageCount < 20) {
-        const page = await requestOkxPage(apiKey, apiSecret, apiPassphrase, cursor);
+        const page = await requestOkxPage(apiKey, apiSecret, passphrase, cursor);
         sourceRows.push(...page);
         pageCount++;
         if (sourceRows.length > 2000 || page.length < 100) break;
@@ -180,7 +181,7 @@ export async function POST(request: Request, { params }: Params) {
         const windowEnd = Math.min(windowStart + windowSize - 1, endExclusive - 1);
         let cursor = '', pageCount = 0;
         do {
-          const page = await requestKucoinPage(apiKey, apiSecret, apiPassphrase, apiKeyVersion ?? '3', symbol!, windowStart, windowEnd, cursor);
+          const page = await requestKucoinPage(apiKey, apiSecret, passphrase, apiKeyVersion ?? '3', symbol!, windowStart, windowEnd, cursor);
           sourceRows.push(...page.rows);
           cursor = page.rows.length === 100 ? page.next : '';
           pageCount++;

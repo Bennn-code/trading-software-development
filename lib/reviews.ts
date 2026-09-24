@@ -3,7 +3,10 @@ import { reportPeriod, validDate, type DateRange, type ReportPeriod } from './re
 import { pnl, feeCost, type Trade } from './trades';
 
 const date=z.string().refine(s=>validDate(s)&&s>='1900-01-01'&&s<='2200-12-31','日期格式不正確');
-export const reviewSelection=z.object({kind:z.enum(['week','month','quarter','year','custom']),date,start:date.optional(),end:date.optional()}).superRefine((value,ctx)=>{if(value.kind==='custom'&&(!value.start||!value.end||value.start>value.end))ctx.addIssue({code:z.ZodIssueCode.custom,path:['start'],message:'請選擇有效的自訂日期範圍'});});
+const reviewSelectionFields=z.object({kind:z.enum(['week','month','quarter','year','custom']),date,start:date.optional(),end:date.optional()});
+function validateReviewSelection(value:z.infer<typeof reviewSelectionFields>,ctx:z.RefinementCtx){if(value.kind==='custom'&&(!value.start||!value.end||value.start>value.end))ctx.addIssue({code:z.ZodIssueCode.custom,path:['start'],message:'請選擇有效的自訂日期範圍'});}
+export const reviewSelection=reviewSelectionFields.superRefine(validateReviewSelection);
+export const reviewSaveSelection=reviewSelectionFields.extend({strategy:z.string().max(5000).optional(),reflection:z.string().max(10000).optional(),action:z.enum(['save','generate'])}).superRefine(validateReviewSelection);
 export type ReviewKind=ReportPeriod;
 export function reviewBounds(kind:ReviewKind,anchor:string,custom?:DateRange){
  const parsed=reviewSelection.parse({kind,date:anchor,start:custom?.start,end:custom?.end});
