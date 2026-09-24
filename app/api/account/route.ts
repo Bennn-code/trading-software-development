@@ -7,6 +7,7 @@ import { db, bucket, json, failure, ApiError } from '@/lib/server';
 import { sameOrigin } from '@/lib/account-validation';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
 import { ensureProfiles } from '@/lib/profiles';
+import type { Trade } from '@/lib/trades';
 export async function GET(request: Request) {
   try {
     const account = await currentAccount(request);
@@ -14,8 +15,12 @@ export async function GET(request: Request) {
       getChatGPTUser(),
       account ? ensureProfiles(account.userId) : Promise.resolve({profiles:[],activeProfileId:null}),
     ]);
-    const preference = account ? await db().prepare('SELECT language,show_demo_data,timezone,base_currency,pnl_color,active_profile_id FROM account_preferences WHERE user_id = ?').bind(account.userId).first<{language:string;show_demo_data:number;timezone:string;base_currency:string;pnl_color:string;active_profile_id:string|null}>() : null;
-    return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null,preferences:preference?{language:preference.language,showDemoData:!!preference.show_demo_data,timezone:preference.timezone,baseCurrency:preference.base_currency,pnlColor:preference.pnl_color,activeProfileId:spaces.activeProfileId}:null,profiles:spaces.profiles,activeProfileId:spaces.activeProfileId, canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
+    const database = db();
+    const [preference, tradeRows] = await Promise.all([
+      account ? database.prepare('SELECT language,show_demo_data,timezone,base_currency,pnl_color,active_profile_id FROM account_preferences WHERE user_id = ?').bind(account.userId).first<{language:string;show_demo_data:number;timezone:string;base_currency:string;pnl_color:string;active_profile_id:string|null}>() : Promise.resolve(null),
+      account && spaces.activeProfileId ? database.prepare('SELECT payload FROM trades WHERE user_id = ? AND profile_id = ? ORDER BY exit_time DESC').bind(account.userId,spaces.activeProfileId).all<{payload:string}>() : Promise.resolve({results: [] as {payload:string}[]}),
+    ]);
+    return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null,preferences:preference?{language:preference.language,showDemoData:!!preference.show_demo_data,timezone:preference.timezone,baseCurrency:preference.base_currency,pnlColor:preference.pnl_color,activeProfileId:spaces.activeProfileId}:null,profiles:spaces.profiles,activeProfileId:spaces.activeProfileId,trades:tradeRows.results.map(row=>JSON.parse(row.payload) as Trade), canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
   } catch (e) { return failure(e); }
 }
 

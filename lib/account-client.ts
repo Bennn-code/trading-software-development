@@ -1,5 +1,6 @@
 import type { Account } from './account-auth';
 import type { UserPreferences } from './preferences';
+import type { Trade } from './trades';
 
 export type AccountBootstrap = {
   account: Account | null;
@@ -11,6 +12,7 @@ export type AccountBootstrap = {
   preferences: UserPreferences | null;
   profiles: { id: string; name: string; isMain: boolean; createdAt: string; tradeCount: number }[];
   activeProfileId: string | null;
+  trades?: Trade[];
 };
 
 let cached: AccountBootstrap | null = null;
