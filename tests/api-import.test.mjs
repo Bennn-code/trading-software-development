@@ -31,17 +31,33 @@ assert.ok(searchApiImportGuides('TopstepX').length === 0, 'TopstepX must stay ex
 
 const en = JSON.parse(fs.readFileSync('lib/locales/en.json', 'utf8'));
 const yue = JSON.parse(fs.readFileSync('lib/locales/yue.json', 'utf8'));
+const legalCompiled = ts.transpileModule(fs.readFileSync('lib/locales/legal.ts', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const legalModule = { exports: {} };
+new Function('exports', 'module', legalCompiled)(legalModule.exports, legalModule);
+const enText = { ...en, ...legalModule.exports.legalEnglish };
+const yueText = { ...yue, ...legalModule.exports.legalCantonese };
+assert.deepEqual(apiImportGuides.filter(guide => guide.liveConnector).map(guide => guide.id), ['bybit']);
 for (const guide of apiImportGuides) {
   const localizedNames = /[\u3400-\u9fff]/.test(guide.name) ? [guide.name] : [];
   for (const text of [...localizedNames, guide.category, guide.credentialType, guide.readPermission, ...guide.steps, ...(guide.notes ?? [])]) {
-    assert.ok(en[text], `missing English API import translation: ${text}`);
-    assert.ok(yue[text], `missing Cantonese API import translation: ${text}`);
+    assert.ok(enText[text], `missing English API import translation: ${text}`);
+    assert.ok(yueText[text], `missing Cantonese API import translation: ${text}`);
   }
 }
 const uiSource = fs.readFileSync('app/broker-import.tsx', 'utf8');
 for (const [, text] of uiSource.matchAll(/tx\('([^']+)'/g)) {
-  assert.ok(en[text], `missing English API import UI translation: ${text}`);
-  assert.ok(yue[text], `missing Cantonese API import UI translation: ${text}`);
+  assert.ok(enText[text], `missing English API import UI translation: ${text}`);
+  assert.ok(yueText[text], `missing Cantonese API import UI translation: ${text}`);
 }
 
-console.log(`Passed read-only API catalog checks for ${apiImportGuides.length} providers and English/Cantonese guides.`);
+const connector = fs.readFileSync('app/api/imports/api/bybit/route.ts', 'utf8');
+assert.match(connector, /https:\/\/api\.bybit\.com\/v5\/position\/get-closed-positions/);
+assert.match(connector, /method:\s*'GET'/);
+assert.match(connector, /redirect:\s*'error'/);
+assert.doesNotMatch(connector, /method:\s*'POST'/, 'the connector must never send write requests to Bybit');
+assert.doesNotMatch(connector, /apiSecret[^\n]{0,100}(?:INSERT|UPDATE|DELETE)|(?:INSERT|UPDATE|DELETE)[^\n]{0,100}apiSecret/i, 'API secrets must never be persisted');
+assert.match(uiSource, /setApiSecret\(''\)/, 'clear the secret from UI state after submitting or leaving the form');
+
+console.log(`Passed read-only API catalog checks for ${apiImportGuides.length} providers, the Bybit GET-only connector, and English/Cantonese guides.`);

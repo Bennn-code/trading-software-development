@@ -17,12 +17,15 @@ export type ApiImportGuide = {
   steps: string[];
   notes?: string[];
   availability?: 'normal' | 'external-setup' | 'local-only';
+  /** A site-side connector that accepts one-time credentials and implements fixed read endpoints. */
+  liveConnector?: 'bybit-options';
 };
 
 /**
  * API-capable platforms are catalogued separately from file exports. The catalog
  * only includes official account-history APIs with a read-only permission path.
- * Availability describes the provider's API, not a live connection on this site.
+ * liveConnector means a fixed site-side adapter exists; the rest are catalog-only
+ * and must never accept credentials as if they were connected.
  */
 export const apiImportGuides: ApiImportGuide[] = [
   {
@@ -33,9 +36,10 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'bybit', name: 'Bybit', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['拜比特'],
-    source: 'https://bybit-exchange.github.io/docs/v5/order/execution', credentialType: 'API Key + Secret', readPermission: 'API Key 設為 Read-Only；不開啟 Trade、Transfer 或 Withdraw。',
-    steps: ['登入 Bybit，前往 API Management／API 管理。', '建立專用 API Key，權限選 Read-Only，關閉所有寫入權限。', '選擇日期區間；較長區間會依官方單次查詢上限分段讀取。'],
-    notes: ['成交資料可能把同一委託拆成多筆 Execution；網站匯入前需依成交 ID 去重及配對。'],
+    source: 'https://bybit-exchange.github.io/docs/v5/position/close-position', credentialType: 'API Key + Secret', readPermission: '此串接只會向固定的已平倉選擇權查詢端點發送 GET；仍請在 Bybit 將 API Key 設為 Read-Only，關閉 Trade、Transfer 和 Withdraw。',
+    steps: ['登入 Bybit API Management／API 管理，建立專用 API Key。', '權限只選 Read-Only，關閉 Trade、Transfer、Withdraw；如可設定 IP 白名單，請依 Bybit 建議設定。', '在本站輸入 API Key 和 Secret，選擇日期區間後讀取已平倉 USDT 選擇權。', '先逐筆核對預覽資料，再勾選並按儲存；本站目前不讀取現貨或其他合約類型。'],
+    notes: ['本站目前只支援 Bybit USDT 選擇權已平倉紀錄，API 最多查詢最近六個月；每次最多預覽 50 筆。金鑰只用於當次伺服器查詢，不會寫入資料庫或瀏覽器儲存。'],
+    liveConnector: 'bybit-options',
   },
   {
     id: 'okx', name: 'OKX', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['歐易'],

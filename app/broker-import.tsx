@@ -38,6 +38,8 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   const [duplicates, setDuplicates] = useState<Record<string, TradeDuplicate>>({});
   const [apiStart, setApiStart] = useState(() => dateInput(new Date(Date.now() - 30 * 86_400_000)));
   const [apiEnd, setApiEnd] = useState(() => dateInput(new Date()));
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
 
   const guide = brokerGuides.find(item => item.id === provider);
   const apiGuide = apiImportGuides.find(item => item.id === apiProvider);
@@ -63,6 +65,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   }
 
   function selectApiGuide(next: typeof apiImportGuides[number]) {
+    if (apiProvider !== next.id) { setApiKey(''); setApiSecret(''); }
     setApiProvider(next.id);
     setMarket(next.market);
     setHelp(true);
@@ -95,6 +98,8 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   function changeMethod(next: ImportMethod) {
     if (rows.length) return;
     setMethod(next);
+    setApiKey('');
+    setApiSecret('');
     setSearch('');
     setRegion('all');
     setError('');
@@ -109,6 +114,8 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     setSearch('');
     setRegion('all');
     setRows([]);
+    setApiKey('');
+    setApiSecret('');
     setError('');
     setBusy('');
     setDuplicates({});
@@ -156,6 +163,33 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
       setRows([]);
       setError(cause instanceof Error ? cause.message : '讀取檔案失敗');
     } finally {
+      setBusy('');
+    }
+  }
+
+  async function importApiTrades() {
+    if (apiProvider !== 'bybit' || !apiKey.trim() || !apiSecret.trim() || !apiDateValid) return;
+    const submittedKey = apiKey.trim(), submittedSecret = apiSecret.trim();
+    setBusy('正在安全讀取交易所資料…');
+    setError('');
+    try {
+      const response = await fetch('/api/imports/api/bybit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: submittedKey, apiSecret: submittedSecret, startDate: apiStart, endDate: apiEnd }),
+      });
+      const data = await response.json() as { trades?: Trade[]; warnings?: string[]; error?: string };
+      if (!response.ok) throw new Error(data.error || 'API 查詢失敗，請確認唯讀金鑰和日期。');
+      if (!data.trades?.length) throw new Error('此日期區間沒有符合條件的 Bybit USDT 選擇權平倉紀錄。');
+      const parsed: ParsedBrokerTrade[] = data.trades.map((trade, index) => ({ trade, warnings: index === 0 ? data.warnings ?? [] : [], selected: true, confirmed: false, sourceRow: index + 1 }));
+      setRows(parsed);
+      setActive(0);
+      setDuplicates({});
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'API 查詢失敗，請重試。');
+    } finally {
+      setApiKey('');
+      setApiSecret('');
       setBusy('');
     }
   }
@@ -228,7 +262,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     <DialogContent className="broker-import-dialog">
       <DialogHeader>
         <DialogTitle>{tx('交易所匯入')}</DialogTitle>
-        <DialogDescription>{method === 'file' ? tx('只讀取你選擇的 CSV／Excel；先預覽核對，再寫入交易紀錄。') : tx('API 與檔案匯入分開顯示；目前只列 API 支援與教學，尚未連線，不會下單、轉帳或提款。')}</DialogDescription>
+        <DialogDescription>{method === 'file' ? tx('只讀取你選擇的 CSV／Excel；先預覽核對，再寫入交易紀錄。') : tx('API 與檔案匯入分開顯示；目前只有 Bybit USDT 選擇權提供網站唯讀連線，其他來源仍是支援指南。本站沒有下單、轉帳或提款功能。')}</DialogDescription>
       </DialogHeader>
 
       {!rows.length ? <>
@@ -248,7 +282,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
             }} placeholder={tx('搜尋交易所／券商名稱或關鍵字')} aria-label={tx('搜尋交易所／券商名稱或關鍵字')}/>{search && <button type="button" aria-label={tx('清除搜尋')} onClick={() => setSearch('')}><X size={15}/></button>}</label>
             <div className="broker-region-tabs" role="group" aria-label={tx('依地區篩選')}>{brokerRegionOptions.map(option => <button key={option.id} type="button" className={region === option.id ? 'active' : ''} aria-pressed={region === option.id} onClick={() => setRegion(option.id)}>{tx(option.label)}</button>)}</div>
             <div className="broker-grid-scroll">
-              {method === 'file' ? <div className="broker-grid">{visibleGuides.map(item => <button key={item.id} type="button" className={provider === item.id ? 'active' : ''} onClick={() => selectGuide(item)}><strong>{tx(item.name)}</strong><small>{tx(item.category)}</small></button>)}</div> : <div className="broker-grid api-provider-grid">{visibleApiGuides.map(item => <button key={item.id} type="button" className={`${apiProvider === item.id ? 'active ' : ''}${item.availability === 'local-only' ? 'local-api-provider' : ''}`} onClick={() => selectApiGuide(item)}><strong>{tx(item.name)}</strong><small>{tx(item.category)}</small><span className={`api-provider-badge ${item.availability ?? 'normal'}`}>{tx(item.availability === 'local-only' ? '需本機連接器' : item.availability === 'external-setup' ? '需開發者開通' : item.safetyMode === 'site-query-only' ? '程式端點限制查詢' : '官方唯讀權限')}</span></button>)}</div>}
+              {method === 'file' ? <div className="broker-grid">{visibleGuides.map(item => <button key={item.id} type="button" className={provider === item.id ? 'active' : ''} onClick={() => selectGuide(item)}><strong>{tx(item.name)}</strong><small>{tx(item.category)}</small></button>)}</div> : <div className="broker-grid api-provider-grid">{visibleApiGuides.map(item => <button key={item.id} type="button" className={`${apiProvider === item.id ? 'active ' : ''}${item.availability === 'local-only' ? 'local-api-provider' : ''}`} onClick={() => selectApiGuide(item)}><strong>{tx(item.name)}</strong><small>{tx(item.category)}</small><span className={`api-provider-badge ${item.liveConnector ? 'live' : item.availability ?? 'normal'}`}>{tx(item.liveConnector ? '本站唯讀串接' : item.availability === 'local-only' ? '需本機連接器' : item.availability === 'external-setup' ? '需開發者開通' : item.safetyMode === 'site-query-only' ? '程式端點限制查詢' : '官方唯讀權限')}</span></button>)}</div>}
               {method === 'file' && !visibleGuides.length && <p className="broker-no-results">{tx('找不到符合的交易所或券商。請換個關鍵字或地區。')}</p>}
               {method === 'api' && !visibleApiGuides.length && <p className="broker-no-results">{tx('找不到符合的 API 來源。請換個關鍵字或地區。')}</p>}
             </div>
@@ -266,19 +300,24 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
             {apiGuide.safetyMode === 'site-query-only' && <div className="api-availability-note api-security-note"><AlertTriangle size={17}/><span>{tx('此服務的 API 本身包含金融操作。本站目前不接受或儲存 API 金鑰，也沒有 API 連線；日後只有固定查詢端點會納入接頭。程式限制不能防止金鑰在本站以外遭竊或被其他程式使用。')}</span></div>}
             {help && <div className="guide-body api-guide-body"><ol>{apiGuide.steps.map((step, index) => <li key={step}><b>{index + 1}.</b><span>{tx(step)}</span></li>)}</ol>{apiGuide.notes?.map(note => <p key={note}><AlertTriangle size={15}/>{tx(note)}</p>)}<a href={apiGuide.source} target="_blank" rel="noreferrer">{tx('查看官方 API 文件')} <ExternalLink size={13}/></a></div>}
             {selectedApiMarket && <label className="broker-market"><span>{tx('交易市場')}</span><Select value={market} onValueChange={value => setMarket(value as Trade['market'])}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{apiGuide.markets?.map(value => <SelectItem key={value} value={value}>{tx(marketNames[value])}</SelectItem>)}</SelectContent></Select></label>}
-            <div className="api-date-panel"><div className="api-date-title"><CalendarDays size={17}/><strong>{tx('選擇要讀取的成交日期區間')}</strong></div><div className="api-date-fields"><label><span>{tx('開始日期')}</span><input type="date" value={apiStart} max={apiEnd || dateInput(new Date())} onChange={event => setApiStart(event.target.value)}/></label><label><span>{tx('結束日期')}</span><input type="date" value={apiEnd} min={apiStart} max={dateInput(new Date())} onChange={event => setApiEnd(event.target.value)}/></label></div>{!apiDateValid && <p className="form-error">{tx('請確認日期順序正確，且結束日期不可晚於今天。')}</p>}<p className="field-hint">{tx('交易所 API 的歷史查詢期間各有上限，超過時會分段讀取。')}</p></div>
+            <div className="api-date-panel"><div className="api-date-title"><CalendarDays size={17}/><strong>{tx('選擇要讀取的成交日期區間')}</strong></div><div className="api-date-fields"><label><span>{tx('開始日期')}</span><input type="date" value={apiStart} max={apiEnd || dateInput(new Date())} onChange={event => setApiStart(event.target.value)}/></label><label><span>{tx('結束日期')}</span><input type="date" value={apiEnd} min={apiStart} max={dateInput(new Date())} onChange={event => setApiEnd(event.target.value)}/></label></div>{!apiDateValid && <p className="form-error">{tx('請確認日期順序正確，且結束日期不可晚於今天。')}</p>}<p className="field-hint">{tx(apiGuide.liveConnector === 'bybit-options' ? 'Bybit 以 UTC 日期查詢，僅限最近六個月；較長區間會依官方上限分段讀取。' : '交易所 API 的歷史查詢期間各有上限，超過時會分段讀取。')}</p></div>
             {apiGuide.availability === 'local-only' ? <div className="api-availability-note local"><AlertTriangle size={17}/><span>{tx('此 API 需要在你的電腦執行本機交易平台連接器；目前網站無法直接連到本機服務。')}</span></div> : apiGuide.availability === 'external-setup' ? <div className="api-availability-note"><AlertTriangle size={17}/><span>{tx('此交易所要求整合方先註冊／開通 OAuth 應用；本網站尚未完成這項申請。')}</span></div> : null}
-            <div className="api-not-ready" role="status"><KeyRound size={17}/><span>{tx('本站的 API 安全連線服務尚未啟用。此頁目前提供支援名單與唯讀設定教學；請勿在聊天或本頁輸入 API 金鑰。')}</span></div>
-            <p className="field-hint">{tx('本站尚未啟用 API 連線；本頁僅提供 API 來源說明與日期區間選擇，現在不會連上帳戶或執行任何金融操作。')}</p>
+            {apiGuide.liveConnector === 'bybit-options' ? <div className="api-credential-form">
+              <div className="api-credential-notice"><ShieldCheck size={17}/><span>{tx('金鑰只會透過 HTTPS 傳送至本站固定唯讀 API；只在這次讀取時使用，不會保存到帳號、資料庫、Cookie 或瀏覽器儲存。本站只呼叫 Bybit 已平倉選擇權 GET 查詢端點。')}</span></div>
+              <label>{tx('Bybit API Key')}<input type="password" autoComplete="off" spellCheck={false} maxLength={128} value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={tx('貼上唯讀 API Key')}/></label>
+              <label>{tx('Bybit API Secret')}<input type="password" autoComplete="new-password" spellCheck={false} maxLength={256} value={apiSecret} onChange={event => setApiSecret(event.target.value)} placeholder={tx('貼上 API Secret')}/></label>
+              <button type="button" className="primary-button" disabled={!!busy || !apiKey.trim() || !apiSecret.trim() || !apiDateValid} onClick={() => void importApiTrades()}><KeyRound size={17}/>{tx('唯讀連線並預覽平倉紀錄')}</button>
+            </div> : <div className="api-not-ready" role="status"><KeyRound size={17}/><span>{tx('此來源目前尚無實際 API 連接器，所以不接受 API 金鑰；此頁只提供支援名單、權限指南和日期區間。')}</span></div>}
+            <p className="field-hint">{tx('連線只會讀取資料；金鑰必須在交易所端設為唯讀並停用交易、轉帳、提款。程式限制不能保護在本站以外遭竊的金鑰。')}</p>
           </section> : <div className="broker-empty"><KeyRound/><p>{tx('請先選擇支援唯讀 API 的交易所或券商。')}</p></div>}
         </div>
       </> : <div className="broker-review">
-        <div className="broker-review-head"><button type="button" className="outline-button" onClick={() => { setRows([]); setDuplicates({}); }}><ArrowLeft size={16}/>{tx('重選檔案')}</button><div><strong>{guide ? tx(guide.name) : ''}</strong><span>{rows.length} {tx('筆交易待核對')}</span></div><button type="button" className="text-button" onClick={() => setRows(list => list.map(item => item.selected ? { ...item, confirmed: true } : item))}><CheckCircle2 size={16}/>{tx('核對所有已選項目')}</button></div>
+        <div className="broker-review-head"><button type="button" className="outline-button" onClick={() => { setRows([]); setDuplicates({}); }}><ArrowLeft size={16}/>{tx(method === 'api' ? '返回 API 設定' : '重選檔案')}</button><div><strong>{guide ? tx(guide.name) : apiGuide ? tx(apiGuide.name) : ''}</strong><span>{rows.length} {tx('筆交易待核對')}</span></div><button type="button" className="text-button" onClick={() => setRows(list => list.map(item => item.selected ? { ...item, confirmed: true } : item))}><CheckCircle2 size={16}/>{tx('核對所有已選項目')}</button></div>
         <div className="broker-review-layout"><aside>{rows.map((item, index) => {
           const duplicate = duplicates[item.trade.id];
           return <button type="button" key={item.trade.id} className={`${active === index ? 'active ' : ''}${duplicate && duplicate.step < 2 ? 'duplicate' : ''}`} onClick={() => setActive(index)}><input type="checkbox" checked={item.selected} onClick={event => event.stopPropagation()} onChange={event => setRows(list => list.map((entry, entryIndex) => entryIndex === index ? { ...entry, selected: event.target.checked, confirmed: false } : entry))}/><span><strong>{index + 1}. {item.trade.symbol}</strong><small>{item.trade.exitTime.replace('T', ' ')} · {item.trade.currency}</small></span>{item.confirmed && <CheckCircle2 size={16}/>}</button>;
         })}</aside>
-          {row && <section className="broker-edit"><div className="broker-edit-heading"><div><h3>{tx('修改與核對')}</h3><p>{tx('來源檔案第 {0} 列', [row.sourceRow])}</p></div><button type="button" aria-label={tx('取消選取')} onClick={() => setRows(list => list.map((item, index) => index === active ? { ...item, selected: false, confirmed: false } : item))}><X/></button></div>{row.warnings.length > 0 && <ul className="import-warnings">{row.warnings.map(warning => <li key={warning}>{tx(warning)}</li>)}</ul>}{duplicates[row.trade.id] && <TradeDuplicateWarning duplicate={duplicates[row.trade.id]} busy={!!busy} onConfirm={() => void confirmDuplicate(row.trade.id)}/>}<TradeFields trade={row.trade} onChange={trade => update(active, trade)} notes={false}/><label className="checkbox-label confirm-row"><input type="checkbox" checked={row.confirmed} disabled={!row.selected || !!duplicates[row.trade.id] && duplicates[row.trade.id].step < 2} onChange={event => setRows(list => list.map((item, index) => index === active ? { ...item, confirmed: event.target.checked } : item))}/>{tx('已核對這筆交易')}</label>{rowIssue && !rowIssue.success && <p className="form-error">{tradeIssueMessage(rowIssue.error.issues[0])}</p>}</section>}
+          {row && <section className="broker-edit"><div className="broker-edit-heading"><div><h3>{tx('修改與核對')}</h3><p>{tx(method === 'api' ? 'API 來源第 {0} 筆' : '來源檔案第 {0} 列', [row.sourceRow])}</p></div><button type="button" aria-label={tx('取消選取')} onClick={() => setRows(list => list.map((item, index) => index === active ? { ...item, selected: false, confirmed: false } : item))}><X/></button></div>{row.warnings.length > 0 && <ul className="import-warnings">{row.warnings.map(warning => <li key={warning}>{tx(warning)}</li>)}</ul>}{duplicates[row.trade.id] && <TradeDuplicateWarning duplicate={duplicates[row.trade.id]} busy={!!busy} onConfirm={() => void confirmDuplicate(row.trade.id)}/>}<TradeFields trade={row.trade} onChange={trade => update(active, trade)} notes={false}/><label className="checkbox-label confirm-row"><input type="checkbox" checked={row.confirmed} disabled={!row.selected || !!duplicates[row.trade.id] && duplicates[row.trade.id].step < 2} onChange={event => setRows(list => list.map((item, index) => index === active ? { ...item, confirmed: event.target.checked } : item))}/>{tx('已核對這筆交易')}</label>{rowIssue && !rowIssue.success && <p className="form-error">{tradeIssueMessage(rowIssue.error.issues[0])}</p>}</section>}
         </div>
         <div className="broker-review-footer"><span>{rows.filter(item => item.selected).length} {tx('筆已選取')} · {rows.filter(item => item.selected && item.confirmed).length} {tx('筆已核對')}</span><button type="button" className="primary-button" disabled={!!busy} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" size={17}/> : <Upload size={17}/>} {tx('儲存選取交易')}</button></div>
       </div>}

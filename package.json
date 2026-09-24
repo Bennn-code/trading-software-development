@@ -13,6 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test:trades": "node tests/trades.test.mjs",
+    "test:bybit-api": "node tests/bybit-api-import.test.mjs",
     "test:integration": "node tests/batch.integration.mjs"
   },
   "dependencies": {
