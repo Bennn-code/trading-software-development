@@ -18,7 +18,7 @@ export type ApiImportGuide = {
   notes?: string[];
   availability?: 'normal' | 'external-setup' | 'local-only';
   /** A site-side connector that accepts one-time credentials and implements fixed read endpoints. */
-  liveConnector?: 'bybit-options';
+  liveConnector?: 'bybit-options' | 'bitget-usdt-futures' | 'okx-usdt-swap' | 'kucoin-uta-usdt-futures';
 };
 
 /**
@@ -43,9 +43,10 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'okx', name: 'OKX', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['歐易'],
-    source: 'https://www.okx.com/docs-v5/en/', credentialType: 'API Key + Secret + Passphrase', readPermission: '只選 Read；不可選 Trade 或 Withdraw。建議依 OKX 指引綁定 IP。',
-    steps: ['登入 OKX，前往 API／API 管理並建立專用金鑰。', '權限只選 Read，關閉 Trade 和 Withdraw，設定 API Passphrase。', '選擇日期區間與產品類型；官方歷史成交 API 有各自資料保留期限。'],
-    notes: ['OKX API 會要求 API Key、Secret 和 Passphrase；只提供唯讀權限。'],
+    source: 'https://www.okx.com/docs-v5/en/#rest-api-account-get-positions-history', credentialType: 'API Key + Secret + Passphrase', readPermission: '本站只讀取 OKX USDT 永續合約已完整平倉部位，僅呼叫固定的持倉歷史 GET 查詢。API Key 權限只選 Read，停用 Trade 和 Withdraw。',
+    steps: ['登入 OKX API 管理，建立專用 API Key 並設定 API Passphrase。', '權限只選 Read，關閉 Trade 和 Withdraw；如可設定 IP 白名單，請依 OKX 指引設定。', '在本站輸入 Key、Secret 和 Passphrase，選日期後讀取 USDT 永續合約已平倉部位。', '核對逐筆預覽後再選取並儲存；部分平倉、幣本位和未平倉部位不會匯入。'],
+    notes: ['官方持倉歷史最多保留最近三個月；本站只收錄完整平倉且以 USDT 結算的 SWAP 部位，損益使用 realizedPnl。'],
+    liveConnector: 'okx-usdt-swap',
   },
   {
     id: 'bingx', name: 'BingX', category: '加密貨幣', market: 'crypto', region: 'crypto',
@@ -55,9 +56,10 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'bitget', name: 'Bitget', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['Bitget'],
-    source: 'https://www.bitget.com/api-doc/common/intro', credentialType: 'API Key + Secret + Passphrase', readPermission: '選 Read-Only；不可啟用 Trade、Transfer 或 Withdraw。',
-    steps: ['登入 Bitget，前往 API Key 管理。', '建立專用 API Key，權限選 Read-Only，設定 Passphrase。', '確認交易、轉帳、提款權限全部關閉，再指定匯入日期。'],
-    notes: ['官方將 Read-Only 權限與下單、轉帳、提款權限分開。'],
+    source: 'https://www.bitget.com/api-doc/classic/contract/position/Get-History-Position', credentialType: 'API Key + Secret + Passphrase', readPermission: '本站只讀取 Bitget USDT-M 期貨已平倉部位；程式只呼叫固定的歷史持倉 GET 端點。Key 請只授權 Read-Only，並停用交易、轉帳與提款。',
+    steps: ['登入 Bitget，前往 API Key 管理並建立專用 Key。', '設定 API Passphrase，權限只選 Read-Only，確認交易、轉帳和提款皆關閉。', '在本站輸入 Key、Secret 和 Passphrase，選擇要讀取的日期。', '核對逐筆預覽後再選取並儲存；現貨、幣本位合約和未平倉部位不會匯入。'],
+    notes: ['官方歷史持倉最多查詢最近三個月；本站只匯入 USDT-FUTURES，損益使用交易所回傳的 netProfit。'],
+    liveConnector: 'bitget-usdt-futures',
   },
   {
     id: 'mexc', name: 'MEXC', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['抹茶'],
@@ -73,9 +75,10 @@ export const apiImportGuides: ApiImportGuide[] = [
   },
   {
     id: 'kucoin', name: 'KuCoin', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['庫幣', '库币'],
-    source: 'https://www.kucoin.com/docs-new', credentialType: 'API Key + Secret + Passphrase', readPermission: '只使用 General／唯讀權限；不要開啟 Spot、Margin、Futures、Earn 或 Withdrawal 權限。',
-    steps: ['登入 KuCoin，建立專用 API Key。', '只開啟 General／唯讀權限，設定 API Passphrase。', '確認所有下單、理財及提款權限都未啟用，再選擇日期區間。'],
-    notes: ['KuCoin 將 General 定義為查詢帳戶、報表和訂單的唯讀權限。'],
+    source: 'https://www.kucoin.com/docs-new/rest/ua/get-position-history-uta', credentialType: 'API Key + Secret + Passphrase', readPermission: '本站只讀取 KuCoin UTA USDT-M 期貨已平倉部位，呼叫固定的持倉歷史 GET 查詢。API Key 只保留 General／唯讀權限，關閉所有交易及資金操作權限。',
+    steps: ['登入 KuCoin API 管理，建立專用 API Key，記下 Secret 和建立金鑰時設定的 Passphrase。', '只開啟 General／唯讀權限；停用下單、轉帳、提款、理財等權限。', '在本站輸入 Key、Secret、Passphrase 和一個 USDT-M 合約代碼（例如 XBTUSDTM），再選日期。', '核對逐筆預覽後再選取並儲存；本站只匯入 UTA USDT-M 已平倉部位。'],
+    notes: ['官方持倉歷史最多保留最近三個月，單次查詢最多七天；本站會自動分段查詢。損益使用 realizedPnL。'],
+    liveConnector: 'kucoin-uta-usdt-futures',
   },
   {
     id: 'coinbase', name: 'Coinbase Advanced', category: '加密貨幣', market: 'crypto', region: 'crypto', keywords: ['Coinbase', 'Coinbase Advanced'],

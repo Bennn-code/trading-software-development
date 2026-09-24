@@ -38,7 +38,7 @@ const legalModule = { exports: {} };
 new Function('exports', 'module', legalCompiled)(legalModule.exports, legalModule);
 const enText = { ...en, ...legalModule.exports.legalEnglish };
 const yueText = { ...yue, ...legalModule.exports.legalCantonese };
-assert.deepEqual(apiImportGuides.filter(guide => guide.liveConnector).map(guide => guide.id), ['bybit']);
+assert.deepEqual(apiImportGuides.filter(guide => guide.liveConnector).map(guide => guide.id), ['bybit', 'okx', 'bitget', 'kucoin']);
 for (const guide of apiImportGuides) {
   const localizedNames = /[\u3400-\u9fff]/.test(guide.name) ? [guide.name] : [];
   for (const text of [...localizedNames, guide.category, guide.credentialType, guide.readPermission, ...guide.steps, ...(guide.notes ?? [])]) {
