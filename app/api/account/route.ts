@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { currentAccount, emailAuthConfigured, emailClient } from '@/lib/account-auth';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { db, bucket, json, failure, ApiError } from '@/lib/server';
+import { db, bucket, json, failure, ApiError, readJson } from '@/lib/server';
 import { sameOrigin } from '@/lib/account-validation';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
 import { ensureProfiles } from '@/lib/profiles';
@@ -29,8 +29,8 @@ async function tokenHash(value:string){return Array.from(new Uint8Array(await cr
 export async function DELETE(request:Request){try{
  if(!sameOrigin(request))throw new ApiError('不允許跨網站操作',403);
  const account=await currentAccount(request);if(!account)throw new ApiError('請先登入再操作交易紀錄',401);
- await enforceRateLimit(request,{scope:'account-delete',limit:3,windowSeconds:86400,subject:account.userId});
- const parsed=deletionSchema.safeParse(await request.json());if(!parsed.success)throw new ApiError('三次確認尚未完成，帳號沒有刪除。');
+ await enforceRateLimit(request,{scope:'account-delete',limit:3,windowSeconds:86400,subject:account.userId,ipLimit:20});
+ const parsed=deletionSchema.safeParse(await readJson(request,16000));if(!parsed.success)throw new ApiError('三次確認尚未完成，帳號沒有刪除。');
  const input=parsed.data;if(input.confirmations[1].trim().toLowerCase()!==account.email.trim().toLowerCase())throw new ApiError('輸入的電子郵件與目前帳號不一致。');
  const exported=await db().prepare('SELECT token_hash,expires_at FROM account_exports WHERE user_id = ?').bind(account.userId).first<{token_hash:string;expires_at:number}>();
  if(!exported||exported.expires_at<Date.now()||exported.token_hash!==await tokenHash(input.exportToken))throw new ApiError('請先重新下載完整資料，再進行註銷。',409);

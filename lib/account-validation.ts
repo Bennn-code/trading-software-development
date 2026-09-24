@@ -7,7 +7,7 @@ export const passwordSchema = z.string()
   .regex(/[a-z]/, '密碼至少需要一個小寫英文字母')
   .regex(/[A-Z]/, '密碼至少需要一個大寫英文字母');
 export const otpSchema = z.string().regex(/^\d{6}$/, '請輸入信件中的 6 位數驗證碼');
-const botFields={turnstileToken:z.string().max(4096).optional(),website:z.string().max(200).optional()};
+const botFields={turnstileToken:z.string().max(2048).optional(),website:z.string().max(200).optional()};
 export const authSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('signup'), email: emailSchema, password: passwordSchema,...botFields }),
   z.object({ action: z.literal('login'), email: emailSchema, password: z.string().min(1).max(128),...botFields }),

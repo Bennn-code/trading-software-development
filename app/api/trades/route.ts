@@ -1,9 +1,10 @@
-import { db, identity, json, failure, ApiError } from '@/lib/server';
+import { db, identity, json, failure, ApiError, readJson } from '@/lib/server';
 import { tradeSchema, tradeIssueMessage } from '@/lib/validation';
 import { duplicateInfo } from '@/lib/image-duplicates';
 import { activeProfile } from '@/lib/profiles';
+import { enforceRateLimit } from '@/lib/security';
 export async function GET(request:Request){try{const owner=await identity(request),profile=await activeProfile(owner);const result=await db().prepare('SELECT payload FROM trades WHERE user_id = ? AND profile_id=? ORDER BY exit_time DESC').bind(owner,profile).all<{payload:string}>();return json({trades:result.results.map(row=>JSON.parse(row.payload))});}catch(e){return failure(e);}}
-export async function POST(request:Request){try{const owner=await identity(request,true);if(Number(request.headers.get('content-length')||0)>40000)throw new ApiError('交易資料過大');const raw=await request.text();if(raw.length>40000)throw new ApiError('交易資料過大');let input;try{input=JSON.parse(raw);}catch{throw new ApiError('交易資料格式不正確');}const parsed=tradeSchema.safeParse(input);if(!parsed.success)throw new ApiError(tradeIssueMessage(parsed.error.issues[0]));const t=parsed.data;
+export async function POST(request:Request){try{const owner=await identity(request,true);await enforceRateLimit(request,{scope:'trade-save',limit:180,windowSeconds:3600,subject:owner});const parsed=tradeSchema.safeParse(await readJson(request,40000));if(!parsed.success)throw new ApiError(tradeIssueMessage(parsed.error.issues[0]));const t=parsed.data;
  const profile=await activeProfile(owner);const current=await db().prepare('SELECT user_id,profile_id FROM trades WHERE id = ?').bind(t.id).first<{user_id:string;profile_id:string}>();if(current&&(current.user_id!==owner||current.profile_id!==profile))throw new ApiError('無法存取這筆交易',403);
  if(t.imageId){const image=await db().prepare('SELECT id FROM images WHERE id = ? AND user_id = ?').bind(t.imageId,owner).first();if(!image)throw new ApiError('找不到這張截圖，請重新上傳');}
  if(!current&&t.imageId){const duplicate=await duplicateInfo(owner,t.imageId);if(duplicate.count&&duplicate.step<2)return json({error:'這張截圖已有交易紀錄，需先完成兩次重複加入確認。',duplicate,imageId:t.imageId},409);}

@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { ApiError, db, failure, identity, json } from '@/lib/server';
+import { ApiError, db, failure, identity, json, readJson } from '@/lib/server';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
+import { readBoundedText, ResponseTooLargeError } from '@/lib/bounded-response';
 import { hmacSha256Base64, hmacSha256Hex, mapBingxPosition, mapBitgetPosition, mapKucoinUtaPosition, mapMexcPosition, mapOkxPosition, preserveLargeJsonPositionIds, type BingxHistoryPosition, type BitgetHistoryPosition, type KucoinUtaHistoryPosition, type MexcHistoryPosition, type OkxHistoryPosition } from '@/lib/exchange-api';
 
 const inputSchema = z.object({
@@ -20,6 +21,7 @@ type KucoinResponse = { code: string; data?: { items?: KucoinUtaHistoryPosition[
 type BingxResponse = { code: number; data?: BingxHistoryPosition[] | { list?: BingxHistoryPosition[]; total?: number } };
 type MexcResponse = { success: boolean; code: number; data?: MexcHistoryPosition[] | { resultList?: MexcHistoryPosition[]; totalPage?: number } };
 const DAY = 86_400_000;
+const APPROVED_API_HOSTS = new Set(['www.okx.com', 'api.bitget.com', 'api.kucoin.com', 'open-api.bingx.com', 'contract.mexc.com']);
 
 function dateMs(value: string) {
   const ms = Date.parse(`${value}T00:00:00.000Z`);
@@ -37,6 +39,8 @@ function oldestSupportedDate() {
 }
 
 async function fetchJson<T>(url: string, headers: HeadersInit, preservePositionIds = false): Promise<T> {
+  const endpoint = new URL(url);
+  if (endpoint.protocol !== 'https:' || !APPROVED_API_HOSTS.has(endpoint.hostname)) throw new ApiError('交易所 API 連線目標無效。', 502);
   let response: Response;
   try {
     response = await fetch(url, { method: 'GET', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000), headers });
@@ -45,9 +49,12 @@ async function fetchJson<T>(url: string, headers: HeadersInit, preservePositionI
   }
   if (!response.ok) throw new ApiError(response.status === 429 ? '交易所查詢次數已達上限，請稍後重試。' : '交易所暫時無法讀取資料，請稍後重試。', response.status === 429 ? 429 : 502);
   try {
-    const body = await response.text();
+    const body = await readBoundedText(response, 2 * 1024 * 1024);
     return JSON.parse(preservePositionIds ? preserveLargeJsonPositionIds(body) : body) as T;
-  } catch { throw new ApiError('API 回傳資料格式無法辨識；沒有匯入任何資料。', 502); }
+  } catch (error) {
+    if (error instanceof ResponseTooLargeError) throw new ApiError('交易所回傳資料過大，請縮短日期區間後再試。', 502);
+    throw new ApiError('API 回傳資料格式無法辨識；沒有匯入任何資料。', 502);
+  }
 }
 
 async function requestOkxPage(apiKey: string, apiSecret: string, passphrase: string, after: string): Promise<OkxHistoryPosition[]> {
@@ -129,11 +136,8 @@ export async function POST(request: Request, { params }: Params) {
     const { provider } = await params;
     if (!['bitget', 'okx', 'kucoin', 'bingx', 'mexc'].includes(provider)) throw new ApiError('此 API 來源尚未開放連線。', 404);
     const owner = await identity(request, true);
-    await enforceRateLimit(request, { scope: `${provider}-api-import`, limit: 5, windowSeconds: 3600, subject: owner });
-    const raw = await request.text();
-    if (raw.length > 5000) throw new ApiError('API 匯入資料格式不正確。');
-    let body: unknown;
-    try { body = JSON.parse(raw); } catch { throw new ApiError('API 匯入資料格式不正確。'); }
+    await enforceRateLimit(request, { scope: `${provider}-api-import`, limit: 5, ipLimit: 20, windowSeconds: 3600, subject: owner });
+    const body = await readJson(request, 5000);
     const parsed = inputSchema.safeParse(body);
     if (!parsed.success) throw new ApiError('請填寫有效的 API Key、Secret 和日期。');
     const { apiKey, apiSecret, apiPassphrase, apiKeyVersion, symbol, startDate, endDate } = parsed.data;

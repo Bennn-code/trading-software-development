@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { db, identity, json, failure, ApiError } from '@/lib/server';
+import { db, identity, json, failure, ApiError, readJson } from '@/lib/server';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
 import { bybitHmacSha256, mapBybitClosedOption, mapBybitClosedPnl, type BybitClosedOption, type BybitClosedPnl } from '@/lib/bybit-api';
+import { readBoundedText, ResponseTooLargeError } from '@/lib/bounded-response';
 
 const inputSchema = z.object({
   apiKey: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9_-]+$/),
@@ -43,7 +44,11 @@ async function requestPage(apiKey: string, apiSecret: string, category: 'option'
   }
   if (!response.ok) throw new ApiError('Bybit API 暫時無法讀取資料，請確認 API 金鑰與 Bybit 服務狀態。', 502);
   let data: BybitResponse;
-  try { data = await response.json() as BybitResponse; } catch { throw new ApiError('Bybit 回傳格式無法辨識，沒有匯入任何資料。', 502); }
+  try { data = JSON.parse(await readBoundedText(response, 2 * 1024 * 1024)) as BybitResponse; }
+  catch (error) {
+    if (error instanceof ResponseTooLargeError) throw new ApiError('Bybit 回傳資料過大，請縮短日期區間後再試。', 502);
+    throw new ApiError('Bybit 回傳格式無法辨識，沒有匯入任何資料。', 502);
+  }
   if (data.retCode !== 0) {
     const message = data.retCode === 10003 || data.retCode === 10004
       ? 'API 金鑰或簽章無效，請檢查 Key／Secret。'
@@ -65,11 +70,8 @@ function dateMs(value: string) {
 export async function POST(request: Request) {
   try {
     const owner = await identity(request, true);
-    await enforceRateLimit(request, { scope: 'bybit-api-import', limit: 5, windowSeconds: 3600, subject: owner });
-    const raw = await request.text();
-    if (raw.length > 3000) throw new ApiError('API 匯入資料格式不正確。');
-    let body: unknown;
-    try { body = JSON.parse(raw); } catch { throw new ApiError('API 匯入資料格式不正確。'); }
+    await enforceRateLimit(request, { scope: 'bybit-api-import', limit: 5, ipLimit: 20, windowSeconds: 3600, subject: owner });
+    const body = await readJson(request, 3000);
     const parsed = inputSchema.safeParse(body);
     if (!parsed.success) throw new ApiError('請填寫正確的 Bybit API Key、Secret 和日期。');
     const { apiKey, apiSecret, category, startDate, endDate } = parsed.data;

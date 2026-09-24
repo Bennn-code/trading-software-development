@@ -1,20 +1,19 @@
 import { emailClient } from '@/lib/account-auth';
 import { authSchema, authError, sameOrigin } from '@/lib/account-validation';
-import { ApiError, json, failure } from '@/lib/server';
+import { ApiError, json, failure, readJson } from '@/lib/server';
 import { enforceRateLimit, recordSecurityEvent, verifyTurnstile } from '@/lib/security';
 export async function POST(request: Request) {
   let eventAction='unknown';
   try {
     if (!sameOrigin(request)) throw new ApiError('不允許跨網站操作', 403);
-    if(Number(request.headers.get('content-length')||0)>20000)throw new ApiError('請提供有效的資料。');
-    const parsed = authSchema.safeParse(await request.json());
+    const parsed = authSchema.safeParse(await readJson(request,20000));
     if (!parsed.success) throw new ApiError(parsed.error.issues[0].message);
     const input = parsed.data;eventAction=input.action;
     if('website' in input&&input.website)throw new ApiError('操作未完成，請稍後再試。',400);
     if('email' in input){
-      await enforceRateLimit(request,{scope:`auth-${input.action}`,limit:input.action==='login'?10:5,windowSeconds:600,subject:input.email});
+      await enforceRateLimit(request,{scope:`auth-${input.action}`,limit:input.action==='login'?10:5,windowSeconds:600,subject:input.email,ipLimit:input.action==='login'?100:30});
       if(['signup','login','resend','forgot'].includes(input.action))await verifyTurnstile(request,'turnstileToken' in input?input.turnstileToken:undefined);
-    }
+    }else await enforceRateLimit(request,{scope:`auth-${input.action}`,limit:20,windowSeconds:600,ipLimit:60});
     const client = await emailClient(request);
     if (!client) throw new ApiError('電子郵件註冊尚未啟用，請等待網站管理者完成設定。', 503);
     if (input.action === 'logout') {
