@@ -1,11 +1,12 @@
 import { Converter } from 'opencc-js/t2cn';
 import en from './locales/en.json';
 import yue from './locales/yue.json';
+import { legalCantonese, legalEnglish } from './locales/legal';
 export type Language = 'zh-Hant' | 'zh-Hans' | 'yue-Hant' | 'en';
 export function validLanguage(value: unknown): value is Language { return value === 'zh-Hant' || value === 'zh-Hans' || value === 'yue-Hant' || value === 'en'; }
 const simplified = Converter({ from: 'tw', to: 'cn' });
-const english = en as Record<string, string>;
-const cantonese = yue as Record<string, string>;
+const english = { ...en, ...legalEnglish } as Record<string, string>;
+const cantonese = { ...yue, ...legalCantonese } as Record<string, string>;
 export function translate(text: string, language: Language, values: unknown[] = []): string {
   let translated = language === 'zh-Hans' ? simplified(text) : language === 'yue-Hant' ? cantonese[text] ?? text : language === 'en' ? english[text] ?? text : text;
   if (language === 'en' && !english[text]) {

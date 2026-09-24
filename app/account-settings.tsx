@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Clock3, Download, Globe, KeyRound, Mail, Palette, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useI18n } from './language-provider';
+import AboutPrivacy from './about-privacy';
 import type { Account } from '@/lib/account-auth';
 import { getAccountBootstrap, updateAccountBootstrap, type AccountBootstrap } from '@/lib/account-client';
 import { timezoneOptions,baseCurrencies,currencyName,utcOffsetLabel,type UserPreferences } from '@/lib/preferences';
@@ -35,11 +36,9 @@ export default function AccountSettings({initialInfo,onInfoChange}:{initialInfo?
     {info.account?.provider==='email'?<>{info.canLink&&<div className="account-link"><h3>{t('連結原本的交易紀錄')}</h3><p>{t('將此電子郵件帳號連結到目前登入的 ChatGPT 交易空間，以後可使用電子郵件存取原有紀錄。電子郵件空間必須沒有交易資料。')}</p><label><input type="checkbox" checked={linkConfirm} onChange={e=>setLinkConfirm(e.target.checked)}/>{t('我確認要連結這兩個自己的帳號')}</label><button className="outline-button" disabled={!linkConfirm||busy} onClick={()=>action('/api/account/link')}>{t('連結交易空間')}</button></div>}<button className="outline-button" disabled={busy} onClick={()=>action('/api/account/auth')}>{t('登出電子郵件帳號')}</button></>:<AuthForm enabled={info.emailEnabled} siteKey={info.turnstileSiteKey}/>}</>}
   </section>
   {info?.account&&<DataSecurity account={info.account} deletionReady={info.accountDeletionReady}/>}
-  <AboutAndPrivacy/>
+  <AboutPrivacy/>
  </div>;
 }
-
-function AboutAndPrivacy(){const {t}=useI18n();return <section className="panel settings-panel legal-panel"><div className="settings-title"><ShieldCheck size={22}/><div><h2>{t('關於我們與隱私政策')}</h2><p>{t('了解交易手記如何協助復盤，以及資料如何被使用。')}</p></div></div><details><summary>{t('關於我們')}</summary><div className="legal-copy"><p>{t('交易手記是一套為交易者設計的私人交易日誌，協助你整理跨市場交易、費用、損益、策略與心得，並以圖表和期間總結看見自己的交易習慣。')}</p><p>{t('我們提供手動輸入、檔案匯入、截圖辨識與 AI 總結工具。所有統計只供紀錄與教育用途，不構成投資、法律或稅務建議。交易決策與資料正確性仍由使用者自行負責。')}</p></div></details><details><summary>{t('隱私政策')}</summary><div className="legal-copy"><h3>{t('我們收集的資料')}</h3><p>{t('我們可能處理帳號電子郵件、登入與安全事件、交易紀錄、策略心得、上傳檔案與截圖、語言和顯示偏好，以及防止濫用所需的技術資訊。')}</p><h3>{t('資料用途')}</h3><p>{t('資料用於提供登入、同步、匯入、統計、匯出、備份、安全防護、錯誤排查，以及你主動要求的 AI 辨識或總結。資料不會出售，也不會用於與服務無關的廣告。')}</p><h3>{t('服務供應商與跨境處理')}</h3><p>{t('網站可能使用 Cloudflare 提供託管、防護與儲存，Supabase 提供帳號驗證，Resend 傳送帳號信件，OpenAI 在你主動使用 AI 功能時處理必要內容。這些服務可能在你所在地以外的地區處理資料。')}</p><h3>{t('保存、控制與刪除')}</h3><p>{t('資料會保存到提供服務、履行安全義務或符合法律要求不再需要為止。你可以下載完整備份、更正交易內容並註銷帳號；註銷完成後，帳號資料會依系統與備份週期刪除或去識別化。')}</p><h3>{t('安全、Cookie 與未成年人')}</h3><p>{t('我們使用加密連線、權限隔離、速率限制、安全事件紀錄與人機驗證。必要的 Cookie 或本機儲存用於登入、語言、主題與安全狀態。本服務不以未成年人為主要對象。')}</p><h3>{t('你的權利與政策更新')}</h3><p>{t('你可在設定中存取、匯出、更正與刪除資料。隱私政策若有重大變更，網站會更新內容與生效日期；繼續使用前請重新查看。')}</p><p><strong>{t('生效日期：2026 年 9 月 23 日')}</strong></p></div></details></section>}
 
 function Turnstile({siteKey,onToken,resetKey}:{siteKey:string;onToken:(token:string)=>void;resetKey:number}){
  const ref=useRef<HTMLDivElement>(null),widget=useRef('');
