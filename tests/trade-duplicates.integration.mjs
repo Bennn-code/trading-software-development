@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 const root='http://localhost:5173';
 const sign=await fetch(root+'/signin-with-chatgpt?return_to=/',{redirect:'manual'}),cookie=sign.headers.getSetCookie().map(c=>c.split(';')[0]).join('; '),headers={cookie,origin:root,'Content-Type':'application/json'};
 const post=(path,body,h=headers)=>fetch(root+path,{method:'POST',headers:h,body:JSON.stringify(body)});
-const ids=[],images=[];
+const ids=[];
 const base={id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'__overlap_test__',currency:'USD',entryTime:'2026-01-05T10:02',exitTime:'2026-01-05T10:15',entry:Math.floor(Math.random()*100000)+100,exit:200,quantity:3,multiplier:2,fees:1,commission:2,funding:null,strategy:'',notes:'',imageId:null,netOverride:-400,profitBasis:'gross'};ids.push(base.id);
 const batch=trades=>post('/api/trades/batch',{trades});
 const check=trades=>post('/api/imports/check-trades',{trades});

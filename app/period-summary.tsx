@@ -69,17 +69,17 @@ export default function PeriodSummary({
       </div>
     </div>
     <div className="total-metrics summary-cards">
-      <TotalPnl trades={scoped} currency={currency} />
+      <TotalPnl trades={scoped} currency={currency} baseCurrency={baseCurrency} />
       <article className="metric daily-metric">
         <div className="metric-label">{date === today ? tx('今日') : tx('當日')}{tx('淨損益')}<button className="metric-icon" aria-label={tx('開啟當日損益日曆')} onClick={() => onCalendar(date)}><CalendarDays size={18} /></button></div>
-        {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.daily.net < 0 ? 'negative' : 'positive'}>{amount(g.daily.net)}<ConvertedMoney amount={g.daily.net} currency={g.currency} /></strong></div>)}
+        {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.daily.net < 0 ? 'negative' : 'positive'}>{amount(g.daily.net)}<ConvertedMoney amount={g.daily.net} currency={g.currency} baseCurrency={baseCurrency} /></strong></div>)}
         <button className="metric-meta metric-count" onClick={() => onRange(date, date)}>{date} · {groups.reduce((s, g) => s + g.daily.count, 0)} {tx(' 筆交易 →')}</button>
-        <CombinedProfit trades={dailyTrades} />
+        <CombinedProfit trades={dailyTrades} baseCurrency={baseCurrency} />
       </article>
       <TotalTradeCount trades={scoped} onAll={onAll} />
       <article className="metric">
         <div className="metric-label">{date === today ? tx('本週') : tx('該週')}{tx('淨損益')}<button className="metric-icon" aria-label={tx('開啟該週損益日曆')} onClick={() => onCalendar(date)}><CalendarRange size={18} /></button></div>
-        {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.weekly.net < 0 ? 'negative' : 'positive'}>{amount(g.weekly.net)}<ConvertedMoney amount={g.weekly.net} currency={g.currency} /></strong></div>)}
+        {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.weekly.net < 0 ? 'negative' : 'positive'}>{amount(g.weekly.net)}<ConvertedMoney amount={g.weekly.net} currency={g.currency} baseCurrency={baseCurrency} /></strong></div>)}
         <button className="metric-meta metric-count" onClick={() => onRange(week.start, week.end)}>{week.start} ～ {week.end} · {groups.reduce((s, g) => s + g.weekly.count, 0)} {tx(' 筆 →')}</button>
       </article>
     </div>

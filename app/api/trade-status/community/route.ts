@@ -1,10 +1,11 @@
 import { db,identity,json,failure } from '@/lib/server';
 import { pnl,positionValue,type Trade } from '@/lib/trades';
 import { mistakeStats } from '@/lib/trade-status';
+import { currencyOptions } from '@/lib/preferences';
 
 export async function GET(request:Request){try{
  await identity(request);const start=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
- const requested=new URL(request.url).searchParams.get('currency')||'auto',currency=['USD','USDT','TWD','CNY','HKD'].includes(requested)?requested:'auto';
+ const requested=new URL(request.url).searchParams.get('currency')||'auto',currency=requested==='auto'||currencyOptions.some(([code])=>code===requested)?requested:'auto';
  const result=await db().prepare('SELECT user_id,payload FROM trades WHERE exit_time>=? ORDER BY exit_time DESC LIMIT 5000').bind(start+'T00:00').all<{user_id:string;payload:string}>();
  const rows=result.results.map(r=>({userId:r.user_id,trade:JSON.parse(r.payload) as Trade})),users=[...new Set(rows.map(r=>r.userId))];
  if(users.length<3)return json({mistakes:[],profit:[],returns:[],sampleSize:users.length});

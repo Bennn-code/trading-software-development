@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import DuplicateNotice, {type DuplicateCheck} from './duplicate-notice';
 import TradeFields, { Choice } from './trade-fields';
-import { newTrade, pnl, feeCost, grossPnl, marketName, type Trade } from '@/lib/trades';
+import { newTrade, pnl, feeCost, marketName, type Trade } from '@/lib/trades';
 import { tradeSchema, tradeIssueMessage } from '@/lib/validation';
 import { importBlockers, rowProblems } from '@/lib/import-review';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';

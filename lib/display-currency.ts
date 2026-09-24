@@ -1,4 +1,4 @@
-import { pnl, type Trade } from './trades';
+import { type Trade } from './trades';
 
 export type ExchangeRates={rates:Record<string,number>;updatedAt:number;provider?:string;stale?:boolean};
 
@@ -14,9 +14,6 @@ export function convertWallTime(value:string,fromZone:string,toZone:string){
  for(let i=0;i<5;i++){const p=parts(new Date(instant),fromZone),represented=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute);instant+=wall-represented;}
  const out=parts(new Date(instant),toZone);return `${out.year}-${String(out.month).padStart(2,'0')}-${String(out.day).padStart(2,'0')}T${String(out.hour).padStart(2,'0')}:${String(out.minute).padStart(2,'0')}`;
 }
-export function displayTrades(trades:Trade[],target:string,rates:Record<string,number>|null,timeZone?:string){
- return trades.map(trade=>{const toZone=timeZone||trade.timezone||'Asia/Taipei',fromZone=trade.timezone||'Asia/Taipei',converted=target!=='auto'&&rates?convertAmount(pnl(trade),trade.currency,target,rates):null;const zoned={...trade,entryTime:convertWallTime(trade.entryTime,fromZone,toZone),exitTime:convertWallTime(trade.exitTime,fromZone,toZone),timezone:toZone};
-  if(converted===null)return zoned;
-  return {...zoned,currency:target as Trade['currency'],netOverride:converted,profitBasis:'net' as const,commission:null,transactionTax:null,fees:null,funding:null};
- });
+export function displayTrades(trades:Trade[],timeZone?:string){
+ return trades.map(trade=>{const toZone=timeZone||trade.timezone||'Asia/Taipei',fromZone=trade.timezone||'Asia/Taipei';return {...trade,entryTime:convertWallTime(trade.entryTime,fromZone,toZone),exitTime:convertWallTime(trade.exitTime,fromZone,toZone),timezone:toZone};});
 }
