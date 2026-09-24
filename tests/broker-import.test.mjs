@@ -1,12 +1,22 @@
 import fs from 'node:fs';import ts from 'typescript';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
 fs.mkdirSync('work',{recursive:true});
 for(const name of ['trades','broker-import']){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;code=code.replaceAll('"./trades"','"./trades.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
-const require=createRequire(new URL('../work/',import.meta.url)),{brokerGuides,parseCsv,parseBrokerRows}=require('./broker-import.cjs');
-assert.equal(brokerGuides.length,16);assert.ok(brokerGuides.every(x=>x.source.startsWith('https://')));
+const require=createRequire(new URL('../work/',import.meta.url)),{brokerGuides,brokerRegionOptions,exactBrokerGuide,getBrokerRegion,searchBrokerGuides,parseCsv,parseBrokerRows}=require('./broker-import.cjs');
+assert.ok(brokerGuides.length>=25);assert.ok(brokerGuides.every(x=>x.source.startsWith('https://')));
+const addedIds=['webull','fidelity','tradestation-us','kgi','capital-taiwan','esun','cms-hk','htsc-hk','guotai-mainland','cathay-sec','coinbase','kucoin','firstrade','robinhood','cmc-markets','longbridge','tiger-brokers','ubs'];
+for(const id of addedIds)assert.ok(brokerGuides.some(x=>x.id===id),`missing provider: ${id}`);
+assert.equal(brokerRegionOptions.length,7);assert.equal(exactBrokerGuide('微牛').id,'webull');assert.equal(exactBrokerGuide('華泰國際').id,'htsc-hk');assert.equal(exactBrokerGuide('國投證券').id,'guotai-mainland');assert.equal(exactBrokerGuide('TradeStation').id,'tradestation-us');assert.equal(exactBrokerGuide('元大证券').id,'yuanta');assert.equal(exactBrokerGuide('玉山证券').id,'esun');assert.equal(exactBrokerGuide('招商证券香港').id,'cms-hk');assert.equal(exactBrokerGuide('招牌證券').id,'cms-hk');assert.equal(exactBrokerGuide('盈透證券（香港）').id,'ibkr');assert.equal(exactBrokerGuide('第一證券').id,'firstrade');assert.equal(exactBrokerGuide('羅賓漢').id,'robinhood');assert.equal(exactBrokerGuide('長橋').id,'longbridge');
+assert.deepEqual(searchBrokerGuides('群益','tw').map(x=>x.id),['capital-taiwan']);assert.ok(searchBrokerGuides('webull','us').some(x=>x.id==='webull'));assert.ok(searchBrokerGuides('国投证券','cn').some(x=>x.id==='guotai-mainland'));
+assert.equal(getBrokerRegion(brokerGuides.find(x=>x.id==='yuanta')),'tw');assert.equal(searchBrokerGuides('not-a-broker').length,0);
+const english=JSON.parse(fs.readFileSync('lib/locales/en.json','utf8'));
+const cantonese=JSON.parse(fs.readFileSync('lib/locales/yue.json','utf8'));
+for(const guide of brokerGuides.filter(x=>addedIds.includes(x.id)))for(const text of [...guide.steps,...(guide.notes??[])]){assert.ok(english[text],`missing English guide translation: ${text}`);assert.ok(cantonese[text],`missing Cantonese guide translation: ${text}`);}
+for(const text of ['國泰證券','招商證券（香港）','長橋證券 Longbridge','老虎證券 Tiger Brokers','UBS 瑞銀','交易市場']){assert.ok(english[text],`missing English label translation: ${text}`);assert.ok(cantonese[text],`missing Cantonese label translation: ${text}`);}
 const csv='Symbol,Side,Entry Time,Exit Time,Entry Price,Exit Price,Quantity,Realized PNL,Commission,Fee\r\nBTCUSDT,Buy,2026-09-01 10:00:00,2026-09-01 11:00:00,100,110,2,18,1,1';
 const rows=parseBrokerRows(parseCsv(csv),brokerGuides.find(x=>x.id==='binance'),0);assert.equal(rows.length,1);assert.equal(rows[0].trade.entryTime,'2026-09-01T18:00');assert.equal(rows[0].trade.exitTime,'2026-09-01T19:00');assert.equal(rows[0].trade.netOverride,18);assert.equal(rows[0].trade.currency,'USDT');
 const stock='股票代號,方向,進場時間,出場時間,進場價,出場價,股數,淨損益\n2330,買入,2026/09/02 09:00,2026/09/02 13:20,1000,1010,1000,10000';
 const tw=parseBrokerRows(parseCsv(stock),brokerGuides.find(x=>x.id==='yuanta'),8);assert.equal(tw[0].trade.market,'tw-stocks');assert.equal(tw[0].trade.currency,'TWD');assert.equal(tw[0].trade.quantity,1000);assert.equal(tw[0].trade.entryTime,'2026-09-02T09:00');
 const statement='股票代號,方向,進場時間,出場時間,進場價,出場價,股數,手續費,證交稅,其他費用\n2330,買入,2026/09/02 09:00,2026/09/02 13:20,1000,1010,1000,20,3030,5';
 const costs=parseBrokerRows(parseCsv(statement),brokerGuides.find(x=>x.id==='yuanta'),8)[0].trade;assert.equal(costs.commission,20);assert.equal(costs.transactionTax,3030);assert.equal(costs.fees,5);
+const multiMarket=parseBrokerRows(parseCsv(csv),brokerGuides.find(x=>x.id==='longbridge'),0,'us-stocks')[0].trade;assert.equal(multiMarket.market,'us-stocks');assert.equal(multiMarket.currency,'USD');
 console.log('Passed CSV parsing, provider guides, timezone conversion, crypto and Taiwan stock import mappings.');
