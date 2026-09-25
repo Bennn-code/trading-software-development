@@ -29,6 +29,7 @@ assert.equal(averageDurationMinutes([trade('2026-09-21T10:00',10),trade('2026-09
 assert.equal(averageDurationMinutes([]),null);
 assert.deepEqual(weekdayPnlStats([trade('2026-09-21T10:00',10),trade('2026-09-21T09:00',5),trade('2026-09-22T11:00',-8)]),[{weekday:1,net:15},{weekday:2,net:-8}]);
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',-10)]),0);
+assert.equal(sharpeRatio([trade('2026-09-21T10:00',1),trade('2026-09-22T11:00',2),trade('2026-09-23T11:00',3)]),2,'Sharpe remains available without position-size metadata');
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',10)]),null,'zero variance cannot produce a finite Sharpe ratio');
-assert.equal(sharpeRatio([trade('2026-09-21T10:00',10,null),trade('2026-09-22T11:00',-10,null)]),null,'trades without position size are excluded');
+assert.equal(sharpeRatio([trade('2026-09-21T10:00',10)]),null,'a single trade is insufficient for a variance estimate');
 console.log('Passed holding-time, weekday P&L, Sharpe, profitable-day share and minute/hour bucket checks.');

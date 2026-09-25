@@ -27,10 +27,10 @@ export function weekdayPnlStats(trades:Trade[]){
  return [...totals].map(([weekday,net])=>({weekday,net})).sort((a,b)=>a.weekday-b.weekday);
 }
 export function sharpeRatio(trades:Trade[]){
- const returns=trades.flatMap(trade=>{const notional=trade.positionValue;if(notional==null||notional<=0)return[];const value=pnl(trade)/notional;return Number.isFinite(value)?[value]:[];});
- if(returns.length<2)return null;
- const mean=returns.reduce((sum,value)=>sum+value,0)/returns.length;
- const deviation=Math.sqrt(returns.reduce((sum,value)=>sum+(value-mean)**2,0)/(returns.length-1));
+ const outcomes=trades.map(pnl).filter(Number.isFinite);
+ if(outcomes.length<2)return null;
+ const mean=outcomes.reduce((sum,value)=>sum+value,0)/outcomes.length;
+ const deviation=Math.sqrt(outcomes.reduce((sum,value)=>sum+(value-mean)**2,0)/(outcomes.length-1));
  return deviation>0?mean/deviation:null;
 }
 export function winRate(rows:Trade[]){return rows.length?rows.filter(t=>pnl(t)>0).length/rows.length*100:0;}

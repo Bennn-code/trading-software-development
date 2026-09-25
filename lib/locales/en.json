@@ -1195,5 +1195,5 @@
   "週四": "Thursday",
   "週五": "Friday",
   "週六": "Saturday",
-  "夏普比率以逐筆淨損益百分比計算，未年化；期望值為每筆平均淨損益。": "Sharpe uses per-trade net return percentages and is not annualized. Expectancy is average net P&L per trade."
+  "夏普比率以逐筆淨損益計算，未年化；期望值為每筆平均淨損益。": "Sharpe uses per-trade net P&L and is not annualized. Expectancy is average net P&L per trade."
 }
