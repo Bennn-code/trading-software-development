@@ -12,6 +12,8 @@ import "./trade-status.css";
 import "./trade-ai-chat.css";
 import { LanguageProvider } from './language-provider';
 
+const themeBootstrapScript = `(()=>{try{const saved=localStorage.getItem('trade-journal-theme');const dark=saved==='dark'||(saved!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.colorScheme=dark?'dark':'light';}catch{}})();`;
+
 export const metadata: Metadata = {
   title: "交易手記｜我的交易日誌",
   description: "記錄期貨、加密貨幣與股票交易，從每一筆交易看見自己的進步。",
@@ -30,7 +32,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-Hant">
+    <html lang="zh-Hant" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+      </head>
       <body className="antialiased"><LanguageProvider>{children}</LanguageProvider></body>
     </html>
   );
