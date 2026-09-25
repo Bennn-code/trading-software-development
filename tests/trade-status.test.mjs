@@ -8,7 +8,7 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,bestDayShare,holdingTimeBucket,holdingTimeLabel,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,holdingTimeBucket,holdingTimeLabel,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -24,7 +24,7 @@ assert.equal(holdingTimeBucket(120),120);
 assert.equal(holdingTimeLabel(55),'55–60m');
 assert.equal(holdingTimeLabel(60),'1h');
 assert.equal(holdingTimeBucket(3000),48*60);
-const trade=(exitTime,netOverride,positionValue=1000,entryTime='2026-09-21T09:00')=>({exitTime,entryTime,netOverride,profitBasis:'net',positionValue});
+const trade=(exitTime,netOverride,positionValue=1000,entryTime='2026-09-21T09:00')=>({exitTime,entryTime,netOverride,profitBasis:'net',positionValue,market:'us-stocks',entry:100,quantity:10,multiplier:1});
 assert.equal(averageDurationMinutes([trade('2026-09-21T10:00',10),trade('2026-09-21T11:00',-10)]),90);
 assert.equal(averageDurationMinutes([]),null);
 assert.deepEqual(weekdayPnlStats([trade('2026-09-21T10:00',10),trade('2026-09-21T09:00',5),trade('2026-09-22T11:00',-8)]),[{weekday:1,net:15},{weekday:2,net:-8}]);
@@ -32,4 +32,7 @@ assert.equal(sharpeRatio([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',1),trade('2026-09-22T11:00',2),trade('2026-09-23T11:00',3)]),2,'Sharpe remains available without position-size metadata');
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',10)]),null,'zero variance cannot produce a finite Sharpe ratio');
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',10)]),null,'a single trade is insufficient for a variance estimate');
+assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',-5)]),0.25,'expectancy return is the average per-trade return');
+assert.equal(averageReturnPercent([{...trade('2026-09-21T10:00',50,null),market:'futures',multiplier:10,quantity:1}]),5,'futures percentage includes the contract multiplier');
+assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10,0)]),null,'expectancy percentage is unavailable without a notional value');
 console.log('Passed holding-time, weekday P&L, Sharpe, profitable-day share and minute/hour bucket checks.');

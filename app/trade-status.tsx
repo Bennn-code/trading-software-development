@@ -7,12 +7,12 @@ import ConvertedMoney from './converted-money';
 import { marketName, pnl, positionValue, type Trade } from '@/lib/trades';
 import { utcOffsetLabel, timezoneName } from '@/lib/preferences';
 import type { DateRange, ReportPeriod } from '@/lib/report-period';
-import { averageDurationMinutes, averagePnl, bestDayShare, disciplineRate, durationMinutes, holdingTimeBucket, holdingTimeLabel, mistakeStats, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
+import { averageDurationMinutes, averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, holdingTimeBucket, holdingTimeLabel, mistakeStats, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
 
 type Community = { mistakes: { name: string; count: number; percent: number }[]; profit: { label: string; value: number; currency: string }[]; returns: { label: string; value: number }[]; sampleSize: number };
 type Summary = { overview: string; strategySummary: string; reflectionSummary: string; strengths: string[]; improvements: string[]; nextSteps: string[] };
 type TimeBucket = { position: number; label: string; count: number; winRate: number | null };
-type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; clock: TimeBucket[]; holding: TimeBucket[]; averageDuration: number | null; previousAverageDuration: number | null; averageWinDuration: number | null; averageLossDuration: number | null; bestWeekday: { weekday: number; net: number } | null; worstWeekday: { weekday: number; net: number } | null; sharpe: number | null; expectancy: number };
+type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; clock: TimeBucket[]; holding: TimeBucket[]; averageDuration: number | null; previousAverageDuration: number | null; averageWinDuration: number | null; averageLossDuration: number | null; bestWeekday: { weekday: number; net: number } | null; worstWeekday: { weekday: number; net: number } | null; sharpe: number | null; expectancy: number; expectancyPercent: number | null };
 const fmt = (n: number) => (n > 0 ? '+' : '') + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const change = (current: number, previous: number) => previous === 0 ? null : (current - previous) / Math.abs(previous) * 100;
 const weekdays = ['週日','週一','週二','週三','週四','週五','週六'] as const;
@@ -92,6 +92,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
         worstWeekday: daily.length ? [...daily].sort((a, b) => a.net - b.net)[0] : null,
         sharpe: sharpeRatio(rows),
         expectancy: averagePnl(rows),
+        expectancyPercent: averageReturnPercent(rows),
       };
     });
     const lossPercent = selected.filter(trade => positionValue(trade) > 0 && pnl(trade) < 0).map(trade => Math.abs(pnl(trade)) / positionValue(trade) * 100);
@@ -159,12 +160,12 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     <section className="panel status-card status-full market-metrics-section"><header><div><BarChart3/><h2>{t('各市場交易統計')}</h2></div></header><div className="market-metrics-grid">{data.products.map(product => <section className="market-metrics-card" key={`${product.market}-${product.currency}`}><header><h3>{t(marketName(product.market))} · {product.currency}</h3><span>{product.count} {t('筆')}</span></header><div className="market-metric-grid">
       <Metric label={t('平均交易時間')} value={durationText(product.averageDuration,t)}/>
       <Metric label={t('夏普比率')} value={product.sharpe===null?'—':product.sharpe.toFixed(2)}/>
-      <Metric label={t('期望值')} value={`${fmt(product.expectancy)} ${product.currency}`} tone={product.expectancy>0?'profit':product.expectancy<0?'loss':undefined}/>
+      <Metric label={t('期望值')} value={`${fmt(product.expectancy)} ${product.currency}`} detail={`${t('平均報酬率')} ${percentChangeText(product.expectancyPercent)}`} tone={product.expectancy>0?'profit':product.expectancy<0?'loss':undefined} detailTone={product.expectancyPercent===null?undefined:product.expectancyPercent>0?'profit':product.expectancyPercent<0?'loss':undefined}/>
       <Metric label={t('最賺錢的天')} value={product.bestWeekday?`${t(weekdays[product.bestWeekday.weekday])} · ${fmt(product.bestWeekday.net)} ${product.currency}`:'—'} tone={product.bestWeekday&&product.bestWeekday.net!==0?product.bestWeekday.net>0?'profit':'loss':undefined}/>
       <Metric label={t('最賠錢的天')} value={product.worstWeekday?`${t(weekdays[product.worstWeekday.weekday])} · ${fmt(product.worstWeekday.net)} ${product.currency}`:'—'} tone={product.worstWeekday&&product.worstWeekday.net!==0?product.worstWeekday.net>0?'profit':'loss':undefined}/>
       <Metric label={t('平均盈利時間')} value={durationText(product.averageWinDuration,t)}/>
       <Metric label={t('平均虧損時間')} value={durationText(product.averageLossDuration,t)}/>
-    </div></section>)}</div>{!data.products.length&&<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('夏普比率以逐筆淨損益計算，未年化；期望值為每筆平均淨損益。')}</p></section>
+    </div></section>)}</div>{!data.products.length&&<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('夏普比率以逐筆淨損益計算，未年化；期望值金額為每筆平均淨損益，百分比為平均逐筆報酬率。')}</p></section>
 
     <section className="panel status-card status-full"><header><div><Activity/><h2>{t('交易週報')}</h2></div><button className="primary-button" disabled={!signedIn || demo || summaryBusy} onClick={() => void generate()}><RefreshCw size={15}/>{summaryBusy ? t('生成中…') : t('生成 AI 總結')}</button></header>{summary ? <div className="ai-summary"><h3>{t('期間總結')}</h3><p>{summary.overview}</p><div className="summary-columns"><div><h3>{t('策略總結')}</h3><p>{summary.strategySummary || t('本期間沒有足夠的策略心得。')}</p></div><div><h3>{t('心得總結')}</h3><p>{summary.reflectionSummary || t('本期間沒有足夠的心得內容。')}</p></div></div>{summarySections.map(([title, items]) => <div key={title}><h3>{title}</h3><ul>{items.map((item, index) => <li key={index}>{item}</li>)}</ul></div>)}</div> : <p className="status-empty">{signedIn && !demo ? t('按右上方按鈕，AI 將依所選期間的交易、策略與心得生成週報。') : t('登入並選擇我的紀錄後即可生成個人 AI 交易週報。')}</p>}{summaryError && <p className="status-error">{summaryError}</p>}</section>
 
@@ -182,7 +183,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
 }
 
 function Card({ icon, title, children, hidden = false, className = '' }: { icon: React.ReactNode; title: string; children: React.ReactNode; hidden?: boolean; className?: string }) { if (hidden) return null; return <section className={`panel status-card ${className}`}><header><div>{icon}<h2>{title}</h2></div></header>{children}</section>; }
-function Metric({label,value,tone}:{label:string;value:string;tone?:'profit'|'loss'}){return <div className="market-metric"><span>{label}</span><strong className={tone==='profit'?'profit-value':tone==='loss'?'loss-value':''}>{value}</strong></div>;}
+function Metric({label,value,detail,tone,detailTone}:{label:string;value:string;detail?:string;tone?:'profit'|'loss';detailTone?:'profit'|'loss'}){return <div className="market-metric"><span>{label}</span><strong className={tone==='profit'?'profit-value':tone==='loss'?'loss-value':''}>{value}</strong>{detail&&<small className={detailTone==='profit'?'profit-value':detailTone==='loss'?'loss-value':''}>{detail}</small>}</div>;}
 function Row({ name, value, className = '' }: { name: string; value: string; className?: string }) { return <div className="status-row"><span>{name}</span><b className={className}>{value}</b></div>; }
 function Progress({ name, value, suffix }: { name: string; value: number; suffix: string }) { return <div className="status-progress"><div><span>{name}</span><b>{suffix}</b></div><i><em style={{ width: `${Math.min(value, 100)}%` }}/></i></div>; }
 function Empty({ text }: { text: string }) { return <p className="status-empty">{text}</p>; }

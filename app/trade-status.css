@@ -61,7 +61,9 @@
 .market-metric{display:grid;align-content:start;gap:5px;min-width:0;min-height:58px;padding:9px 10px;border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:7px;background:var(--background)}
 .market-metric>span{font-size:10px;line-height:1.4;color:var(--muted-foreground)}
 .market-metric>strong{font-size:13px;line-height:1.4;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.market-metric>small{font-size:10px;line-height:1.4;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 .market-metric>strong.profit-value{color:var(--profit-color)}.market-metric>strong.loss-value{color:var(--loss-color)}
+.market-metric>small.profit-value{color:var(--profit-color)}.market-metric>small.loss-value{color:var(--loss-color)}
 .market-metrics-note{margin-top:10px;color:var(--muted-foreground);font-size:10px;line-height:1.5}
 .rule-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:8px 0;font-size:12px}.rule-row svg{width:15px;color:var(--muted-foreground)}.rule-row svg.checked{color:var(--profit-color);fill:color-mix(in srgb,var(--profit-color) 20%,transparent)}
 @media(max-width:1250px){.status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.best-day-card{grid-column:span 2}}

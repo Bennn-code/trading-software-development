@@ -38,3 +38,12 @@ export function bucketStats<T extends string>(trades:Trade[],bucket:(t:Trade)=>T
 export function disciplineRate(trades:Trade[]){if(!trades.length)return 0;return trades.filter(t=>/計畫|規則|停損|等待|紀律|風險|倉位|確認/i.test(`${t.strategy} ${t.notes}`)).length/trades.length*100;}
 export function averageLoss(trades:Trade[]){const losses=trades.map(pnl).filter(n=>n<0);return losses.length?losses.reduce((s,n)=>s+n,0)/losses.length:0;}
 export function averagePnl(trades:Trade[]){return trades.length?trades.reduce((sum,trade)=>sum+pnl(trade),0)/trades.length:0;}
+export function averageReturnPercent(trades:Trade[]){
+ const returns=trades.flatMap(trade=>{
+  const notional=trade.positionValue??trade.entry*trade.quantity*(trade.market==='futures'?trade.multiplier:1);
+  if(!Number.isFinite(notional)||notional<=0)return[];
+  const value=pnl(trade)/notional*100;
+  return Number.isFinite(value)?[value]:[];
+ });
+ return returns.length?returns.reduce((sum,value)=>sum+value,0)/returns.length:null;
+}
