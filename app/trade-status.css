@@ -51,7 +51,6 @@
 .status-tooltip>span,.status-tooltip small{color:var(--muted-foreground)}.status-tooltip strong{font-size:13px}
 .status-error{color:var(--loss-color);font-size:13px}
 .status-row b.profit-value{color:var(--profit-color)}.status-row b.loss-value{color:var(--loss-color)}
-.status-row b.comparison-neutral{color:var(--foreground)}
 .market-metrics-section{grid-column:1/-1}
 .market-metrics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .market-metrics-card{min-width:0;padding:13px;border:1px solid var(--border);border-radius:9px;background:color-mix(in srgb,var(--card) 92%,var(--muted))}
