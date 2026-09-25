@@ -65,7 +65,7 @@ export default function Journal({signedIn:initialSignedIn,initialView='overview'
  const [custom,setCustom]=useState(()=>({start:localTime().slice(0,7)+'-01',end:localTime().slice(0,10)}));
   const range=reportPeriod(period,anchor,custom),month=anchor.slice(0,7),rangeStart=range.start,rangeEnd=range.end,rangeValid=range.valid;
  function setMonth(value:string){setAnchor(value+'-01');setPeriod('month');}
- function changePeriod(value:ReportPeriod){if(value==='custom'&&period!=='custom')setCustom({start:range.start,end:range.end});setPeriod(value);setRecordScope('month');setDay('');setQuery('');}
+ function changePeriod(value:ReportPeriod){if(value==='custom'&&period!=='custom')setCustom({start:range.start,end:range.end});if(value!=='custom')setAnchor(localTime().slice(0,10));setPeriod(value);setRecordScope('month');setDay('');setQuery('');}
  function changeCustom(value:{start:string;end:string}){setCustom(value);setRecordScope('month');setDay('');setQuery('');}
  function movePeriod(step:number){setAnchor(shiftPeriod(period,anchor,step));setRecordScope('month');setDay('');setQuery('');}
  function openPeriodCalendar(){setView('calendar');setRecordScope('month');setDay('');}

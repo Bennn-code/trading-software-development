@@ -20,9 +20,21 @@ export function dateDaysAgo(days:number){const d=new Date();d.setDate(d.getDate(
 export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,1);return mistakeRules.map(([name,re])=>{const count=trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length;return{name,count,percent:count/total*100};}).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
 export function durationMinutes(t:Trade){return Math.max(0,(new Date(t.exitTime).getTime()-new Date(t.entryTime).getTime())/60000);}
+export function averageDurationMinutes(trades:Trade[]){const values=trades.map(durationMinutes).filter(Number.isFinite);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}
+export function weekdayPnlStats(trades:Trade[]){
+ const totals=new Map<number,number>();
+ for(const trade of trades){const date=trade.exitTime.slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date))continue;const weekday=new Date(`${date}T12:00:00Z`).getUTCDay();totals.set(weekday,(totals.get(weekday)||0)+pnl(trade));}
+ return [...totals].map(([weekday,net])=>({weekday,net})).sort((a,b)=>a.weekday-b.weekday);
+}
+export function sharpeRatio(trades:Trade[]){
+ const returns=trades.flatMap(trade=>{const notional=trade.positionValue;if(notional==null||notional<=0)return[];const value=pnl(trade)/notional;return Number.isFinite(value)?[value]:[];});
+ if(returns.length<2)return null;
+ const mean=returns.reduce((sum,value)=>sum+value,0)/returns.length;
+ const deviation=Math.sqrt(returns.reduce((sum,value)=>sum+(value-mean)**2,0)/(returns.length-1));
+ return deviation>0?mean/deviation:null;
+}
 export function winRate(rows:Trade[]){return rows.length?rows.filter(t=>pnl(t)>0).length/rows.length*100:0;}
 export function bucketStats<T extends string>(trades:Trade[],bucket:(t:Trade)=>T){const map=new Map<T,Trade[]>();for(const t of trades){const key=bucket(t);map.set(key,[...(map.get(key)||[]),t]);}return [...map].map(([name,rows])=>({name,count:rows.length,winRate:winRate(rows)})).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function disciplineRate(trades:Trade[]){if(!trades.length)return 0;return trades.filter(t=>/計畫|規則|停損|等待|紀律|風險|倉位|確認/i.test(`${t.strategy} ${t.notes}`)).length/trades.length*100;}
-export function overtradeRate(trades:Trade[]){const by=new Map<string,number>();for(const t of trades)by.set(t.exitTime.slice(0,10),(by.get(t.exitTime.slice(0,10))||0)+1);return by.size?[...by.values()].filter(n=>n>3).length/by.size*100:0;}
 export function averageLoss(trades:Trade[]){const losses=trades.map(pnl).filter(n=>n<0);return losses.length?losses.reduce((s,n)=>s+n,0)/losses.length:0;}
 export function averagePnl(trades:Trade[]){return trades.length?trades.reduce((sum,trade)=>sum+pnl(trade),0)/trades.length:0;}
