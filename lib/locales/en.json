@@ -1196,5 +1196,7 @@
   "週五": "Friday",
   "週六": "Saturday",
   "平均報酬率": "Average return",
+  "按進場日期歸屬期間": "Period is assigned by entry date",
+  "交易時段依進場時間分組；持倉時間為出場時間減進場時間。": "Trading sessions are grouped by entry time; holding time is exit time minus entry time.",
   "夏普比率以逐筆淨損益計算，未年化；期望值金額為每筆平均淨損益，百分比為平均逐筆報酬率。": "Sharpe uses per-trade net P&L and is not annualized. Expectancy shows average net P&L per trade and the average return percentage per trade."
 }

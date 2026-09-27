@@ -8,7 +8,7 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,holdingTimeBucket,holdingTimeLabel,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -27,6 +27,9 @@ assert.equal(holdingTimeBucket(3000),48*60);
 const trade=(exitTime,netOverride,positionValue=1000,entryTime='2026-09-21T09:00')=>({exitTime,entryTime,netOverride,profitBasis:'net',positionValue,market:'us-stocks',entry:100,quantity:10,multiplier:1});
 assert.equal(averageDurationMinutes([trade('2026-09-21T10:00',10),trade('2026-09-21T11:00',-10)]),90);
 assert.equal(averageDurationMinutes([]),null);
+const enteredInRange={...trade('2026-10-01T00:10',10),'entryTime':'2026-09-30T23:50'};
+const exitedInRangeOnly={...trade('2026-09-01T00:10',10),'entryTime':'2026-08-31T23:50'};
+assert.deepEqual(inEntryDateRange([enteredInRange,exitedInRangeOnly],'2026-09-01','2026-09-30'),[enteredInRange],'time analytics use entry date rather than exit date for period membership');
 assert.deepEqual(weekdayPnlStats([trade('2026-09-21T10:00',10),trade('2026-09-21T09:00',5),trade('2026-09-22T11:00',-8)]),[{weekday:1,net:15},{weekday:2,net:-8}]);
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',-10)]),0);
 assert.equal(sharpeRatio([trade('2026-09-21T10:00',1),trade('2026-09-22T11:00',2),trade('2026-09-23T11:00',3)]),2,'Sharpe remains available without position-size metadata');

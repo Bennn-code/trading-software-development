@@ -17,6 +17,7 @@ export const strategyRules=[
  ['趨勢／突破',/趨勢|突破|順勢/i],['回測／支撐阻力',/回測|支撐|壓力|供需/i],['區間／反轉',/區間|反轉|均值回歸/i],['風險控制',/停損|風險|倉位|部位/i],['耐心等待',/等待|耐心|確認|訊號完整/i]
 ] as const;
 export function dateDaysAgo(days:number){const d=new Date();d.setDate(d.getDate()-days);return d.toISOString().slice(0,10);}
+export function inEntryDateRange(trades:Trade[],start:string,end:string){return trades.filter(trade=>trade.entryTime.slice(0,10)>=start&&trade.entryTime.slice(0,10)<=end);}
 export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,1);return mistakeRules.map(([name,re])=>{const count=trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length;return{name,count,percent:count/total*100};}).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
 export function durationMinutes(t:Trade){return Math.max(0,(new Date(t.exitTime).getTime()-new Date(t.entryTime).getTime())/60000);}
