@@ -9,6 +9,7 @@ import "./theme.css";
 import "./account.css";
 import "./broker-import.css";
 import "./trade-status.css";
+import "./interaction.css";
 import "./trade-ai-chat.css";
 import { LanguageProvider } from './language-provider';
 

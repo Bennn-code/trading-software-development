@@ -1,0 +1,38 @@
+/* Shared pointer and hover treatment for period tabs and dropdown choices. */
+.report-tabs button:hover,
+[data-slot="select-item"]:hover,
+[data-slot="select-item"][data-highlighted] {
+  box-shadow: inset 0 0 0 1px #b6d8c9;
+}
+
+.dark .report-tabs button:hover,
+.dark [data-slot="select-item"]:is(:hover, [data-highlighted]) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55);
+}
+
+/* Shared tooltip surface for longer explanations that use the InfoTooltip control. */
+.factor-help-wide {
+  max-width: 370px;
+}
+
+.factor-help > section + section {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.factor-help > section p,
+.factor-help-note {
+  margin: 3px 0 0;
+  color: var(--muted-foreground);
+}
+
+.factor-help > strong {
+  font-weight: 650;
+}
+
+.factor-help-note {
+  margin-top: 11px !important;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
