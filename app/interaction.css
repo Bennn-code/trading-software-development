@@ -1,13 +1,39 @@
 /* Shared pointer and hover treatment for period tabs and dropdown choices. */
+.report-tabs button:not(:disabled),
+[data-slot="select-trigger"]:not(:disabled) {
+  cursor: pointer;
+}
+
 .report-tabs button:hover,
 [data-slot="select-item"]:hover,
 [data-slot="select-item"][data-highlighted] {
   box-shadow: inset 0 0 0 1px #b6d8c9;
 }
 
+[data-slot="select-trigger"]:not(:disabled):hover,
+.custom-date-range input:hover {
+  border-color: #b6d8c9;
+  box-shadow: inset 0 0 0 1px #b6d8c9;
+}
+
+.custom-date-range input:focus-visible {
+  outline: 2px solid #128261;
+  outline-offset: 2px;
+}
+
 .dark .report-tabs button:hover,
 .dark [data-slot="select-item"]:is(:hover, [data-highlighted]) {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55);
+}
+
+.dark [data-slot="select-trigger"]:not(:disabled):hover,
+.dark .custom-date-range input:hover {
+  border-color: rgba(255, 255, 255, .55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55);
+}
+
+.dark .custom-date-range input:focus-visible {
+  outline-color: #fff;
 }
 
 /* Shared tooltip surface for longer explanations that use the InfoTooltip control. */
