@@ -36,6 +36,35 @@
   outline-color: #fff;
 }
 
+/* Keep preference choice cards consistent with other selectable controls. */
+.color-choice label,
+.color-choice label input {
+  cursor: pointer;
+}
+
+.color-choice label {
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.color-choice label:is(:hover, :focus-within) {
+  border-color: #b6d8c9;
+  box-shadow: inset 0 0 0 1px #b6d8c9;
+}
+
+.color-choice label:focus-within {
+  outline: 2px solid #128261;
+  outline-offset: 2px;
+}
+
+.dark .color-choice label:is(:hover, :focus-within) {
+  border-color: rgba(255, 255, 255, .55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55);
+}
+
+.dark .color-choice label:focus-within {
+  outline-color: #fff;
+}
+
 /* Shared tooltip surface for longer explanations that use the InfoTooltip control. */
 .factor-help-wide {
   max-width: 370px;

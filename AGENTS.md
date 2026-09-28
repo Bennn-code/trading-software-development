@@ -53,6 +53,6 @@
 ## 網站與版本
 
 - 現有 Sites 專案 ID 放在 `.openai/hosting.json`，正式網址為 `https://tradersregion.com`。沿用既有 Site，不要另建同名專案。
-- 最近確認的正式網站版本為 **56**。第 56 版將「最佳與最低勝率時間」的問號說明改成滑鼠懸停顯示，鍵盤聚焦也能閱讀；交易時段／持倉時間仍由按鈕切換。當時 TypeScript、目標檔 ESLint 及正式建置通過。
+- 最近確認的正式網站版本為 **59**。第 59 版讓完整資料匯出可先選擇儲存位置，並為設定內盈虧顏色選項補上手掌游標、懸停框線及鍵盤焦點回饋；TypeScript、帳號驗證測試、修改檔案 ESLint 及正式建置通過。`account-settings.tsx` 的一般 ESLint 仍回報既有 recovery effect 狀態更新錯誤，該區未在本次修改。
 - 最近一次讀取 Sites 設定回報 `custom` 存取範圍、目前只有擁有者在允許清單、外部訪客為 0。若要對外公開註冊，必須先核對 Sites/Cloudflare/應用程式註冊三層的實際存取狀況。
 - 發布前確認 build 和 archive 來自相同的 Site source commit；完成後核對部署狀態、最新版本和正式網址。不要把部署成功等同 GitHub 已更新。

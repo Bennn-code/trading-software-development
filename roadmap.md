@@ -108,11 +108,14 @@
 ## 最近確認的正式網站狀態
 
 - Sites 專案：`.openai/hosting.json` 指向既有交易手記 Site。
-- 正式版本：**v56**；正式網址：`https://tradersregion.com`。
+- 正式版本：**v59**；正式網址：`https://tradersregion.com`。
 - v54：調整交易時段以進場日期歸屬統計期間，持倉圖以出場減進場；損益報表期間維持出場日期。
 - v55：在最佳／最低勝率卡片加入交易時段與持倉時間統計說明，保留兩個圖表切換按鈕。
 - v56：使用者指出問號應懸停顯示、不需點擊；問號已改成 hover 提示，鍵盤聚焦可讀。TypeScript、`app/trade-status.tsx` ESLint 及 production build 通過。
-- 發布流程會提交 Sites 專用 source repository 以產生 Site 版本；v56 沒有另外推送使用者的 GitHub。
+- v57：已發布到既有正式網址，確認仍為 `custom` 存取、只有擁有者在允許清單；沒有另外推送使用者的 GitHub。
+- v58：設定內時區及主要換算幣別改用共用選單；週期按鈕、自訂日期欄位和下拉選項統一手掌游標、懸停框線及鍵盤焦點回饋。TypeScript、週期統計測試與 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
+- v59：完整資料匯出先開啟瀏覽器另存新檔視窗，讓使用者選擇儲存位置；不支援檔案選擇 API 的瀏覽器保留原本下載流程。設定內盈虧顏色選項加入手掌游標、懸停框線與鍵盤焦點回饋。TypeScript、帳號驗證測試、修改檔案 ESLint 及 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
+- 發布流程會提交 Sites 專用 source repository 以產生 Site 版本；v57、v58、v59 均沒有另外推送使用者的 GitHub。
 - Sites 後台最後查得 `access_mode=custom`，允許清單只有擁有者、外部訪客數為 0。使用者早先提出未來要開放大眾註冊，因此「應用程式本身註冊功能」和「Sites 網站入口是否允許大眾訪問」仍需正式驗證。
 - 使用者曾要求 GitHub 保留版本紀錄、讓最新版本顯示在專案首頁／README；但之後多次要求先不要推 GitHub。因此這是「明確要求 GitHub 時的發布偏好」，不是目前每次網站部署的自動步驟。
 
