@@ -10,13 +10,12 @@ import { LanguageProvider } from './app/language-provider';
 import PeriodSummary from './app/period-summary';
 import DashboardOverview from './app/dashboard-overview';
 import FavoritesPage from './app/favorites-page';
-import { favoriteFeatureDomId, favoriteFeatureTitle, favoriteFeatureView, overviewFavoriteCards } from './lib/trade-status-favorites';
+import TradeStatus from './app/trade-status';
+import { favoriteFeatureDomId, favoriteFeatureTitle, overviewFavoriteCards } from './lib/trade-status-favorites';
 import { demoTrades } from './lib/trades';
 import { initialLocaleResources } from './lib/initial-locale-resources.server';
 
 const translate = value => value;
-assert.equal(favoriteFeatureView('overview:equity'), 'overview');
-assert.equal(favoriteFeatureView('score'), 'status');
 assert.equal(favoriteFeatureDomId('overview:equity'), 'trade-overview-favorite-overview%3Aequity');
 assert.equal(favoriteFeatureDomId('score'), 'trade-status-favorite-score');
 assert.equal(favoriteFeatureTitle('overview:equity', translate), '累積淨損益');
@@ -31,17 +30,30 @@ for (const id of allIds) assert.ok(summary.includes('id="' + favoriteFeatureDomI
 for (const label of ['Total P&amp;L', 'Today&#x27;s net P&amp;L', 'Total trades', 'This week']) assert.ok(summary.includes(label), label);
 assert.equal((summary.match(/favorite-star-button active/g) || []).length, 4, 'all four summary cards reflect saved favorites');
 
+const focusedSummary = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><PeriodSummary trades={sampleTrades} market="all" currency="all" baseCurrency="auto" onAll={() => {}} onCalendar={() => {}} onRange={() => {}} favoriteIds={['overview:daily-pnl']} onToggleFavorite={() => {}} favoriteOnly /></LanguageProvider>);
+assert.ok(focusedSummary.includes('Today&#x27;s net P&amp;L'), 'favorite-only summary displays the selected card content');
+assert.ok(!focusedSummary.includes('Total P&amp;L'), 'favorite-only summary omits other summary cards');
+
 const analysisIds = ['overview:selected-period-pnl', 'overview:win-rate', 'overview:profit-factor', 'overview:period-count', 'overview:average-results', 'overview:best-worst-trade', 'overview:busiest-day'];
 const dashboard = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><DashboardOverview trades={sampleTrades} currency="all" baseCurrency="auto" periodCaption="This month" onTrade={() => {}} onMonth={() => {}} onDay={() => {}} onCalendar={() => {}} favoriteIds={analysisIds} onToggleFavorite={() => {}} /></LanguageProvider>);
 for (const id of analysisIds) assert.ok(dashboard.includes('id="' + favoriteFeatureDomId(id) + '"'), 'overview analysis card has a stable favorite target: ' + id);
 assert.equal((dashboard.match(/favorite-star-button active/g) || []).length, analysisIds.length, 'all analysis cards reflect saved favorites');
 
-const favorites = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><FavoritesPage ids={['overview:equity', 'score']} ready={true} onToggle={() => {}} onOpen={() => {}} /></LanguageProvider>);
+const focusedDashboard = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><DashboardOverview trades={sampleTrades} currency="all" baseCurrency="auto" periodCaption="This month" onTrade={() => {}} onMonth={() => {}} onDay={() => {}} onCalendar={() => {}} favoriteIds={['overview:profit-factor']} onToggleFavorite={() => {}} favoriteOnly /></LanguageProvider>);
+assert.ok(focusedDashboard.includes('Profit factor'), 'favorite-only analysis displays the selected card content');
+assert.match(focusedDashboard, /trade-overview-favorite-overview%3Awin-rate"[^>]*hidden/, 'unselected analysis cards are hidden');
+
+const favorites = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><FavoritesPage ids={['overview:equity', 'score']} ready={true} onRetry={() => {}}><section className="panel equity-panel">Cumulative net P&amp;L</section><section className="panel status-card">Trading score</section></FavoritesPage></LanguageProvider>);
 assert.ok(favorites.includes('Cumulative net P&amp;L'));
 assert.ok(favorites.includes('Trading score'));
-assert.equal((favorites.match(/favorite-page-card/g) || []).length, 2);
+assert.equal((favorites.match(/favorite-page-card/g) || []).length, 0, 'favorites render card contents directly without a jump list');
+assert.ok(favorites.includes('favorites-page-content'));
 
-console.log('Passed favorites routing, stable overview targets, summary and analysis-card stars, and direct favorites-page rendering.');
+const focusedStatus = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><TradeStatus trades={sampleTrades} timezone="Asia/Taipei" period="month" anchor="2026-09-28" range={{start:'2026-09-01',end:'2026-09-28',caption:'September 2026',valid:true}} favoriteIds={['risk']} onToggleFavorite={() => {}} favoritesOnly /></LanguageProvider>);
+assert.ok(focusedStatus.includes('Risk profile'), 'favorite-only status shows the actual selected insight card');
+assert.ok(!focusedStatus.includes('Most-traded instruments'), 'favorite-only status omits non-favorite cards');
+
+console.log('Passed direct favorites rendering, selected summary/analysis/status cards, stable card targets, and favorite stars.');
 `;
 
 await build({

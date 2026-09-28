@@ -36,16 +36,8 @@ export const overviewFavoriteCards = [
   { id: 'overview:recent-trades', title: '最近交易' },
 ] as const;
 
-export function isOverviewFavorite(id: string) {
-  return id.startsWith('overview:');
-}
-
-export function favoriteFeatureView(id: string) {
-  return isOverviewFavorite(id) ? 'overview' : 'status';
-}
-
 export function favoriteFeatureDomId(id: string) {
-  return isOverviewFavorite(id) ? `trade-overview-favorite-${encodeURIComponent(id)}` : tradeStatusFavoriteDomId(id);
+  return id.startsWith('overview:') ? `trade-overview-favorite-${encodeURIComponent(id)}` : tradeStatusFavoriteDomId(id);
 }
 
 export function favoriteFeatureTitle(id: string, t: FavoriteTranslator) {

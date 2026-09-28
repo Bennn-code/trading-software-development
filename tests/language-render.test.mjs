@@ -34,9 +34,13 @@ for (const [language, labels, loadingLabel] of [
   assert.ok(html.includes(loadingLabel), language + ': localized initial loading state');
   assert.ok(!html.includes('favorite-sidebar-link'), 'favorites remain a top-level nav item');
 
-  const favorites = renderToStaticMarkup(<LanguageProvider initialLanguage={language} initialResources={initialResources}><FavoritesPage ids={['overview:equity', 'score']} ready={true} onToggle={() => {}} onOpen={() => {}} /></LanguageProvider>);
+  const favorites = renderToStaticMarkup(<LanguageProvider initialLanguage={language} initialResources={initialResources}><FavoritesPage ids={['overview:equity', 'score']} ready={true} onRetry={() => {}}><article className="panel equity-panel">{language === 'en' ? 'Cumulative net P&L' : language === 'zh-Hans' ? '累积净损益' : language === 'yue-Hant' ? '累積淨盈虧' : '累積淨損益'}</article><article className="panel status-card">{language === 'en' ? 'Trading score' : language === 'zh-Hans' ? '交易分数' : language === 'yue-Hant' ? '交易評分' : '交易分數'}</article></FavoritesPage></LanguageProvider>);
   assert.ok(favorites.includes(labels[1]), language + ': favorites page title');
-  assert.ok(favorites.includes(language === 'en' ? 'Cumulative net P&amp;L' : language === 'zh-Hans' ? '累积净损益' : language === 'yue-Hant' ? '累積淨盈虧' : '累積淨損益'), language + ': overview favorite title');
+  const directCopy = language === 'en' ? 'View the contents of your saved cards directly here.' : language === 'yue-Hant' ? '直接喺呢度查看已收藏卡片嘅內容。' : language === 'zh-Hans' ? '直接查看已收藏的卡片内容。' : '直接查看已收藏的卡片內容。';
+  assert.ok(favorites.includes(directCopy), language + ': direct card content description');
+  assert.ok(favorites.includes(language === 'en' ? 'Cumulative net P&amp;L' : language === 'zh-Hans' ? '累积净损益' : language === 'yue-Hant' ? '累積淨盈虧' : '累積淨損益'), language + ': overview favorite card content');
+  assert.ok(favorites.includes(language === 'en' ? 'Trading score' : language === 'zh-Hans' ? '交易分数' : language === 'yue-Hant' ? '交易評分' : '交易分數'), language + ': status favorite card content');
+  assert.ok(!favorites.includes('favorite-page-card'), language + ': favorites render card contents rather than jump links');
 }
 
 const englishResources = initialLocaleResources('en');

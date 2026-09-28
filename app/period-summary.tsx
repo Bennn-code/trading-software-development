@@ -27,6 +27,7 @@ export default function PeriodSummary({
   onAll,
   favoriteIds,
   onToggleFavorite,
+  favoriteOnly = false,
 }: {
   trades: Trade[];
   market: string;
@@ -38,6 +39,7 @@ export default function PeriodSummary({
   onRange: (start: string, end: string) => void;
   favoriteIds: string[];
   onToggleFavorite: (id: string) => void;
+  favoriteOnly?: boolean;
 }) {
   const { t: tx } = useI18n();
   const [today, setToday] = useState(() => localTime(new Date(), timezone).slice(0, 10));
@@ -63,7 +65,7 @@ export default function PeriodSummary({
   const displayCurrency = baseCurrency === 'auto' ? tx('依交易原幣別') : `${tx(currencyName(baseCurrency))} ${baseCurrency}`;
 
   return <section className="period-section">
-    <div className="period-heading">
+    <div className="period-heading" hidden={favoriteOnly}>
       <div>
         <h2>{tx('交易損益與筆數')}</h2>
         <p>{tx('依市場篩選 · {0}出場日期 · 主要換算：{1}', [place, displayCurrency])}</p>
@@ -75,20 +77,20 @@ export default function PeriodSummary({
       </div>
     </div>
     <div className="total-metrics summary-cards">
-      <TotalPnl trades={scoped} currency={currency} baseCurrency={baseCurrency} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} />
-      <article id={favoriteFeatureDomId('overview:daily-pnl')} className="metric daily-metric">
+      {(!favoriteOnly || favoriteIds.includes('overview:total-pnl')) && <TotalPnl trades={scoped} currency={currency} baseCurrency={baseCurrency} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} />}
+      <article id={favoriteFeatureDomId('overview:daily-pnl')} className="metric daily-metric" hidden={favoriteOnly && !favoriteIds.includes('overview:daily-pnl')}>
         <div className="metric-label favorite-metric-label"><FavoriteStar active={favoriteIds.includes('overview:daily-pnl')} title={tx('今日淨損益')} onToggle={() => onToggleFavorite('overview:daily-pnl')} /><span>{date === today ? tx('今日') : tx('當日')}{tx('淨損益')}</span><button className="metric-icon metric-heading-icon" aria-label={tx('開啟當日損益日曆')} onClick={() => onCalendar(date)}><CalendarDays size={18} /></button></div>
         {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.daily.net < 0 ? 'negative' : 'positive'}>{amount(g.daily.net)}<ConvertedMoney amount={g.daily.net} currency={g.currency} baseCurrency={baseCurrency} /></strong></div>)}
         <button className="metric-meta metric-count" onClick={() => onRange(date, date)}>{date} · {groups.reduce((s, g) => s + g.daily.count, 0)} {tx(' 筆交易 →')}</button>
         <CombinedProfit trades={dailyTrades} baseCurrency={baseCurrency} />
       </article>
-      <TotalTradeCount trades={scoped} onAll={onAll} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} />
-      <article id={favoriteFeatureDomId('overview:weekly-pnl')} className="metric">
+      {(!favoriteOnly || favoriteIds.includes('overview:trade-count')) && <TotalTradeCount trades={scoped} onAll={onAll} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} />}
+      <article id={favoriteFeatureDomId('overview:weekly-pnl')} className="metric" hidden={favoriteOnly && !favoriteIds.includes('overview:weekly-pnl')}>
         <div className="metric-label favorite-metric-label"><FavoriteStar active={favoriteIds.includes('overview:weekly-pnl')} title={tx('本週淨損益')} onToggle={() => onToggleFavorite('overview:weekly-pnl')} /><span>{date === today ? tx('本週') : tx('該週')}{tx('淨損益')}</span><button className="metric-icon metric-heading-icon" aria-label={tx('開啟該週損益日曆')} onClick={() => onCalendar(date)}><CalendarRange size={18} /></button></div>
         {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.weekly.net < 0 ? 'negative' : 'positive'}>{amount(g.weekly.net)}<ConvertedMoney amount={g.weekly.net} currency={g.currency} baseCurrency={baseCurrency} /></strong></div>)}
         <button className="metric-meta metric-count" onClick={() => onRange(week.start, week.end)}>{week.start} ～ {week.end} · {groups.reduce((s, g) => s + g.weekly.count, 0)} {tx(' 筆 →')}</button>
       </article>
     </div>
-    <p className="period-hint">{tx('已扣除已知費用；未知費用未計入。週一至週日，含跨月交易。')}</p>
+    <p className="period-hint" hidden={favoriteOnly}>{tx('已扣除已知費用；未知費用未計入。週一至週日，含跨月交易。')}</p>
   </section>;
 }
