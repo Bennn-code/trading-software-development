@@ -23,7 +23,7 @@ assert.equal(tradeSchema.parse(t).commission,2.5);
 const row={sourceLabel:'row1',market:'futures',symbol:'MNQU6',side:'long',currency:'USD',entryTime:t.entryTime,exitTime:t.exitTime,entry:t.entry,exit:t.exit,quantity:5,multiplier:null,commission:-2.5,fees:-3.6,feeMode:'paid',funding:0,netProfit:-322.5,netProfitIsNet:false,strategy:null,entryFills:[],exitFills:[],completeFillHistory:false,warnings:[]};
 const candidate=normalizeRow(row,{id:crypto.randomUUID(),imageId:crypto.randomUUID(),account:'test',offset:8});
 assert.equal(candidate.trade.netOverride,-322.5);assert.equal(candidate.trade.profitBasis,'gross');assert.equal(pnl(candidate.trade),-328.6);
-assert.ok(importBlockers([candidate])[0].includes('尚未勾選'));
+assert.deepEqual(importBlockers([candidate]),[],'selection confirmation is collected once for the whole batch in the UI');
 assert.deepEqual(importBlockers([{...candidate,confirmed:true}]),[]);
 assert.ok(importBlockers([{...candidate,confirmed:true,trade:{...candidate.trade,entry:-1}}]).some(x=>x.includes('平均進場價')),'bulk confirmation cannot bypass field validation');
 assert.deepEqual(importBlockers([{...candidate,confirmed:true},{...candidate,selected:false,trade:{...candidate.trade,entry:0}}]),[],'skipped invalid row does not block selected valid records');

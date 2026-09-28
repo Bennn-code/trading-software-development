@@ -110,7 +110,7 @@
 ## 最近確認的正式網站狀態
 
 - Sites 專案：`.openai/hosting.json` 指向既有交易手記 Site。
-- 正式版本：**v60**；正式網址：`https://tradersregion.com`。
+- 正式版本：**v62**；正式網址：`https://tradersregion.com`。
 - v54：調整交易時段以進場日期歸屬統計期間，持倉圖以出場減進場；損益報表期間維持出場日期。
 - v55：在最佳／最低勝率卡片加入交易時段與持倉時間統計說明，保留兩個圖表切換按鈕。
 - v56：使用者指出問號應懸停顯示、不需點擊；問號已改成 hover 提示，鍵盤聚焦可讀。TypeScript、`app/trade-status.tsx` ESLint 及 production build 通過。
@@ -118,7 +118,9 @@
 - v58：設定內時區及主要換算幣別改用共用選單；週期按鈕、自訂日期欄位和下拉選項統一手掌游標、懸停框線及鍵盤焦點回饋。TypeScript、週期統計測試與 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
 - v59：完整資料匯出先開啟瀏覽器另存新檔視窗，讓使用者選擇儲存位置；不支援檔案選擇 API 的瀏覽器保留原本下載流程。設定內盈虧顏色選項加入手掌游標、懸停框線與鍵盤焦點回饋。TypeScript、帳號驗證測試、修改檔案 ESLint 及 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
 - v60：設定內完整 JSON 備份與交易總覽 CSV 共用可選擇儲存位置的流程，保留原有資料和篩選內容；取消選擇不顯示成功訊息。TypeScript、帳號驗證測試、修改檔案 ESLint（略過未修改的既有 recovery effect 規則）及 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
-- 發布流程會提交 Sites 專用 source repository 以產生 Site 版本；v57、v58、v59、v60 均沒有另外推送使用者的 GitHub。
+- v61：交易狀態卡片左上加入星星收藏控制，收藏為黃色實心、未收藏為外框；主要狀態卡及市場／幣別拆分的市場統計與勝率圖都可個別收藏。側欄在交易總覽上方新增可展開的常用功能清單，點擊後進入交易狀態並定位到卡片。收藏以登入帳號為鍵保存在目前瀏覽器的 localStorage，不跨裝置同步。TypeScript、修改檔案 ESLint、`tests/trade-status.test.mjs`、正式建置及四種語言的實際翻譯載入檢查通過，已部署至正式網址；Sites 最新版本為 61，存取維持 `custom`、擁有者限定，外部訪客 0。既有 `tests/language.test.mjs` 和 `tests/language-render.test.mjs` 仍因測試未載入實際翻譯字典／伺服器渲染不執行 hydration 而失敗，與本次變更無關。
+- v62：依使用者回饋，將「常用功能」改成一級側欄導覽及獨立收藏頁，點擊收藏項目後定位到交易總覽或交易狀態對應卡片；常用卡片規範擴展到交易總覽摘要、分析、圖表及最近交易卡。根版面依同源 cookie 以所選語言輸出初始 HTML，僅傳入目前畫面所需字典，切換語言時才延遲載入其餘翻譯資源，避免 OpenCC 增大首頁用戶端程式包；語言載入及帳號同步錯誤文字接入四語翻譯。修正來源目錄 ESLint 問題並更新批次匯入規則測試；收藏卡片路由／星號測試及四語伺服器渲染檢查通過。正式部署、存取權限與網址已核實；沒有推送使用者 GitHub。
+- 發布流程會提交 Sites 專用 source repository 以產生 Site 版本；v57、v58、v59、v60、v61、v62 均沒有另外推送使用者的 GitHub。
 - Sites 後台最後查得 `access_mode=custom`，允許清單只有擁有者、外部訪客數為 0。使用者早先提出未來要開放大眾註冊，因此「應用程式本身註冊功能」和「Sites 網站入口是否允許大眾訪問」仍需正式驗證。
 - 使用者曾要求 GitHub 保留版本紀錄、讓最新版本顯示在專案首頁／README；但之後多次要求先不要推 GitHub。因此這是「明確要求 GitHub 時的發布偏好」，不是目前每次網站部署的自動步驟。
 

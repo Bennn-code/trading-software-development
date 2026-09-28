@@ -5,8 +5,8 @@ import { pnl,type Trade } from '@/lib/trades';
 export default function Equity({trades,start,end}:{trades:Trade[];start:string;end:string}){
  const {t:tx}=useI18n();
 
- const areaId=useId(),[hovered,setHovered]=useState<number|null>(null),sorted=[...trades].sort((a,b)=>a.exitTime.localeCompare(b.exitTime));let cents=0;
- const vals=[0,...sorted.map(t=>(cents+=Math.round(pnl(t)*100))/100)],total=cents/100;
+  const areaId=useId(),[hovered,setHovered]=useState<number|null>(null),sorted=[...trades].sort((a,b)=>a.exitTime.localeCompare(b.exitTime));
+  const vals=sorted.reduce<number[]>((values,trade)=>[...values,(Math.round(values[values.length-1]*100)+Math.round(pnl(trade)*100))/100],[0]),total=vals[vals.length-1];
  const min=Math.min(...vals,0),max=Math.max(...vals,0),padding=Math.max((max-min)*.1,1),low=min-padding,high=max+padding,span=high-low;
  const x=(i:number)=>65+i/Math.max(vals.length-1,1)*625,y=(v:number)=>185-(v-low)/span*145,zero=y(0),points=vals.map((v,i)=>`${x(i)},${y(v)}`);
  const area=`M${points.join(' L')} L${sorted.length?690:65},${zero} L65,${zero} Z`;

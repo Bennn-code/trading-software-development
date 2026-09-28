@@ -1,6 +1,6 @@
 'use client';
 import { useI18n } from './language-provider';
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import DateTime24 from './date-time24';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,7 +21,6 @@ export default function TradeFields({trade:t,onChange,notes=true}:{trade:Trade;o
  const {t:tx}=useI18n();
 
  const uid=useId(),[profitText,setProfitText]=useState(t.netOverride===null?'':String(t.netOverride)),[fundingDirection,setFundingDirection]=useState((t.funding??0)<0?'received':'paid');
- useEffect(()=>{setProfitText(t.netOverride===null?'':String(t.netOverride));setFundingDirection((t.funding??0)<0?'received':'paid');},[t.id]);
  const set=<K extends keyof Trade>(key:K,value:Trade[K])=>onChange({...t,[key]:value});
  function numeric(key:'entry'|'exit'|'quantity'|'multiplier'|'fees'|'commission'|'transactionTax',value:number|null) { const isCost=key==='fees'||key==='commission'||key==='transactionTax',next={...t,[key]:isCost?(value===null?null:Math.abs(value)):value??0}; if(t.market==='crypto'){const known=positionValue(t);next.positionValue=known>0?known:null;next.quantity=known>0&&next.entry>0?known/next.entry:0;} onChange(next); }
  const numberField=(key:'entry'|'exit'|'quantity'|'multiplier'|'fees'|'commission'|'transactionTax',label:string)=>{const isCost=key==='fees'||key==='commission'||key==='transactionTax';return <div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{label}</label><Input id={`${uid}-${key}`} type="number" required={!isCost} step={key==='quantity'&&t.market==='futures'?'1':'any'} min="0" value={isCost?(t[key]==null?'':Math.abs(t[key]!)):t[key]||''} placeholder={isCost?tx("未知／不填"):tx("未知可留白")} onChange={e=>numeric(key,e.target.value===''?null:Number(e.target.value))}/></div>};

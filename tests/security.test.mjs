@@ -10,9 +10,9 @@ function loadTypeScript(path, mockRequire = () => { throw new Error('Unexpected 
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const module = { exports: {} };
-  new Function('require', 'exports', 'module', compiled)(mockRequire, module.exports, module);
-  return module.exports;
+  const commonJsModule = { exports: {} };
+  new Function('require', 'exports', 'module', compiled)(mockRequire, commonJsModule.exports, commonJsModule);
+  return commonJsModule.exports;
 }
 
 const counters = new Map();

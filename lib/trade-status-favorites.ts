@@ -19,6 +19,40 @@ export const tradeStatusFavoriteCards = [
 export type TradeStatusFavoriteId = string;
 export type FavoriteTranslator = (text: string, values?: unknown[]) => string;
 
+export const overviewFavoriteCards = [
+  { id: 'overview:total-pnl', title: '總損益' },
+  { id: 'overview:daily-pnl', title: '今日淨損益' },
+  { id: 'overview:trade-count', title: '總交易筆數' },
+  { id: 'overview:weekly-pnl', title: '本週淨損益' },
+  { id: 'overview:selected-period-pnl', title: '所選期間淨損益' },
+  { id: 'overview:win-rate', title: '交易勝率' },
+  { id: 'overview:profit-factor', title: '獲利因子' },
+  { id: 'overview:period-count', title: '交易筆數' },
+  { id: 'overview:average-results', title: '平均獲利／平均虧損' },
+  { id: 'overview:best-worst-trade', title: '最好與最差的一筆交易' },
+  { id: 'overview:busiest-day', title: '交易最多的一天' },
+  { id: 'overview:equity', title: '累積淨損益' },
+  { id: 'overview:strategy-results', title: '策略表現' },
+  { id: 'overview:recent-trades', title: '最近交易' },
+] as const;
+
+export function isOverviewFavorite(id: string) {
+  return id.startsWith('overview:');
+}
+
+export function favoriteFeatureView(id: string) {
+  return isOverviewFavorite(id) ? 'overview' : 'status';
+}
+
+export function favoriteFeatureDomId(id: string) {
+  return isOverviewFavorite(id) ? `trade-overview-favorite-${encodeURIComponent(id)}` : tradeStatusFavoriteDomId(id);
+}
+
+export function favoriteFeatureTitle(id: string, t: FavoriteTranslator) {
+  const overview = overviewFavoriteCards.find(card => card.id === id);
+  return overview ? t(overview.title) : tradeStatusFavoriteTitle(id, t);
+}
+
 export function tradeStatusFavoriteDomId(id: TradeStatusFavoriteId) {
   return `trade-status-favorite-${encodeURIComponent(id)}`;
 }

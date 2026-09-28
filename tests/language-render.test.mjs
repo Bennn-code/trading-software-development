@@ -1,8 +1,66 @@
-import { build } from 'esbuild';import path from 'node:path';import{createRequire}from'node:module';
-const entry=`import React from 'react';import{renderToStaticMarkup}from'react-dom/server';import assert from 'node:assert/strict';import Journal from './app/journal';import{LanguageProvider}from'./app/language-provider';import AccountSettings,{AuthForm}from'./app/account-settings';import TradeFields from './app/trade-fields';import{newTrade}from'./lib/trades';
-for(const [language,labels] of [['zh-Hant',['交易總覽','我的交易空間','截圖匯入']],['zh-Hans',['交易总览','我的交易空间','截图汇入']],['yue-Hant',['交易總覽','我嘅交易空間','截圖匯入']],['en',['Overview','My trading space','Screenshot import','This month']]]){const html=renderToStaticMarkup(<LanguageProvider initialLanguage={language}><Journal signedIn={true}/></LanguageProvider>);for(const label of labels)assert.ok(html.includes(label),language+': '+label);assert.ok(html.includes('equity-zero-line'));}
-const account=renderToStaticMarkup(<LanguageProvider initialLanguage="en"><AccountSettings/><AuthForm enabled={false}/></LanguageProvider>);for(const s of ['Display language','繁體中文','简体中文','粵語','廣東話','English','Create account','Confirm password','not enabled'])assert.ok(account.includes(s),s);assert.ok(account.includes('disabled=""'));
-const trade={...newTrade(),market:'crypto',symbol:'BTCUSDT',notes:'我的私人心得',strategy:'自己命名的策略',positionValue:1000};const fields=renderToStaticMarkup(<LanguageProvider initialLanguage="en"><TradeFields trade={trade} onChange={()=>{}}/></LanguageProvider>);for(const s of ['Entry position value','Margin mode','Leverage','我的私人心得','自己命名的策略'])assert.ok(fields.includes(s),s);
-console.log('Rendered dashboard in all four languages, settings/registration and crypto form in English; user notes and strategies stay unchanged.');`;
-await build({stdin:{contents:entry,resolveDir:process.cwd(),loader:'tsx'},bundle:true,platform:'node',format:'cjs',outfile:'work/language-render.cjs',alias:{'@':process.cwd()},external:['react','react-dom','react-dom/server'],logLevel:'silent'});
-const require=createRequire(import.meta.url);require(path.resolve('work/language-render.cjs'));
+import { build } from 'esbuild';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const entry = `
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import assert from 'node:assert/strict';
+import Journal from './app/journal';
+import { LanguageProvider, useI18n } from './app/language-provider';
+import FavoritesPage from './app/favorites-page';
+import AccountSettings, { AuthForm } from './app/account-settings';
+import TradeFields from './app/trade-fields';
+import { newTrade } from './lib/trades';
+import { initialLocaleResources } from './lib/initial-locale-resources.server';
+
+function LanguageProbe() {
+  const { t } = useI18n();
+  return <div><span>{t('交易總覽')}</span><span>{t('常用功能')}</span><span>{t('交易分數')}</span></div>;
+}
+
+for (const [language, labels, loadingLabel] of [
+  ['zh-Hant', ['交易總覽', '常用功能', '交易分數'], '正在載入交易紀錄…'],
+  ['zh-Hans', ['交易总览', '常用功能', '交易分数'], '正在载入交易纪录…'],
+  ['yue-Hant', ['交易總覽', '常用功能', '交易評分'], '載入緊交易紀錄…'],
+  ['en', ['Overview', 'Favorites', 'Trading score'], 'Loading trade records…'],
+]) {
+  const initialResources = initialLocaleResources(language);
+  const probe = renderToStaticMarkup(<LanguageProvider initialLanguage={language} initialResources={initialResources}><LanguageProbe /></LanguageProvider>);
+  for (const label of labels) assert.ok(probe.includes(label), language + ': ' + label);
+
+  const html = renderToStaticMarkup(<LanguageProvider initialLanguage={language} initialResources={initialResources}><Journal signedIn={true} /></LanguageProvider>);
+  for (const label of labels.slice(0, 2)) assert.ok(html.includes(label), language + ': ' + label);
+  assert.ok(html.includes(loadingLabel), language + ': localized initial loading state');
+  assert.ok(!html.includes('favorite-sidebar-link'), 'favorites remain a top-level nav item');
+
+  const favorites = renderToStaticMarkup(<LanguageProvider initialLanguage={language} initialResources={initialResources}><FavoritesPage ids={['overview:equity', 'score']} ready={true} onToggle={() => {}} onOpen={() => {}} /></LanguageProvider>);
+  assert.ok(favorites.includes(labels[1]), language + ': favorites page title');
+  assert.ok(favorites.includes(language === 'en' ? 'Cumulative net P&amp;L' : language === 'zh-Hans' ? '累积净损益' : language === 'yue-Hant' ? '累積淨盈虧' : '累積淨損益'), language + ': overview favorite title');
+}
+
+const englishResources = initialLocaleResources('en');
+const account = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><AccountSettings /><AuthForm enabled={false} /></LanguageProvider>);
+for (const label of ['Display language', '繁體中文', '简体中文', '粵語', '廣東話', 'English', 'Create account', 'Confirm password', 'not enabled']) assert.ok(account.includes(label), label);
+assert.ok(account.includes('disabled=""'));
+
+const trade = { ...newTrade(), market: 'crypto', symbol: 'BTCUSDT', notes: '我的私人心得', strategy: '自己命名的策略', positionValue: 1000 };
+const fields = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><TradeFields trade={trade} onChange={() => {}} /></LanguageProvider>);
+for (const label of ['Entry position value', 'Margin mode', 'Leverage', '我的私人心得', '自己命名的策略']) assert.ok(fields.includes(label), label);
+
+console.log('Rendered all four languages synchronously in the provider, verified the top-level favorites page, localized initial state, settings and trade form.');
+`;
+
+await build({
+  stdin: { contents: entry, resolveDir: process.cwd(), loader: 'tsx' },
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'work/language-render.cjs',
+  alias: { '@': process.cwd() },
+  external: ['react', 'react-dom', 'react-dom/server'],
+  logLevel: 'silent',
+});
+
+const require = createRequire(import.meta.url);
+require(path.resolve('work/language-render.cjs'));

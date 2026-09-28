@@ -11,6 +11,8 @@ import ConvertedMoney from './converted-money';
 import { selectMarket, currencyGroups, type CurrencyFilter } from '@/lib/dashboard';
 import { periodSummary, weekBounds } from '@/lib/periods';
 import { currencyName, timezoneName, utcOffsetLabel } from '@/lib/preferences';
+import FavoriteStar from '@/components/favorite-star';
+import { favoriteFeatureDomId } from '@/lib/trade-status-favorites';
 
 const amount = (n: number) => (n > 0 ? '+' : '') + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -23,6 +25,8 @@ export default function PeriodSummary({
   onCalendar,
   onRange,
   onAll,
+  favoriteIds,
+  onToggleFavorite,
 }: {
   trades: Trade[];
   market: string;
@@ -32,6 +36,8 @@ export default function PeriodSummary({
   onAll: () => void;
   onCalendar: (date: string) => void;
   onRange: (start: string, end: string) => void;
+  favoriteIds: string[];
+  onToggleFavorite: (id: string) => void;
 }) {
   const { t: tx } = useI18n();
   const [today, setToday] = useState(() => localTime(new Date(), timezone).slice(0, 10));
@@ -69,16 +75,16 @@ export default function PeriodSummary({
       </div>
     </div>
     <div className="total-metrics summary-cards">
-      <TotalPnl trades={scoped} currency={currency} baseCurrency={baseCurrency} />
-      <article className="metric daily-metric">
-        <div className="metric-label">{date === today ? tx('今日') : tx('當日')}{tx('淨損益')}<button className="metric-icon" aria-label={tx('開啟當日損益日曆')} onClick={() => onCalendar(date)}><CalendarDays size={18} /></button></div>
+      <TotalPnl trades={scoped} currency={currency} baseCurrency={baseCurrency} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} />
+      <article id={favoriteFeatureDomId('overview:daily-pnl')} className="metric daily-metric">
+        <div className="metric-label favorite-metric-label"><FavoriteStar active={favoriteIds.includes('overview:daily-pnl')} title={tx('今日淨損益')} onToggle={() => onToggleFavorite('overview:daily-pnl')} /><span>{date === today ? tx('今日') : tx('當日')}{tx('淨損益')}</span><button className="metric-icon metric-heading-icon" aria-label={tx('開啟當日損益日曆')} onClick={() => onCalendar(date)}><CalendarDays size={18} /></button></div>
         {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.daily.net < 0 ? 'negative' : 'positive'}>{amount(g.daily.net)}<ConvertedMoney amount={g.daily.net} currency={g.currency} baseCurrency={baseCurrency} /></strong></div>)}
         <button className="metric-meta metric-count" onClick={() => onRange(date, date)}>{date} · {groups.reduce((s, g) => s + g.daily.count, 0)} {tx(' 筆交易 →')}</button>
         <CombinedProfit trades={dailyTrades} baseCurrency={baseCurrency} />
       </article>
-      <TotalTradeCount trades={scoped} onAll={onAll} />
-      <article className="metric">
-        <div className="metric-label">{date === today ? tx('本週') : tx('該週')}{tx('淨損益')}<button className="metric-icon" aria-label={tx('開啟該週損益日曆')} onClick={() => onCalendar(date)}><CalendarRange size={18} /></button></div>
+      <TotalTradeCount trades={scoped} onAll={onAll} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} />
+      <article id={favoriteFeatureDomId('overview:weekly-pnl')} className="metric">
+        <div className="metric-label favorite-metric-label"><FavoriteStar active={favoriteIds.includes('overview:weekly-pnl')} title={tx('本週淨損益')} onToggle={() => onToggleFavorite('overview:weekly-pnl')} /><span>{date === today ? tx('本週') : tx('該週')}{tx('淨損益')}</span><button className="metric-icon metric-heading-icon" aria-label={tx('開啟該週損益日曆')} onClick={() => onCalendar(date)}><CalendarRange size={18} /></button></div>
         {groups.map(g => <div className="currency-stat" key={g.currency}><span>{g.currency}</span><strong className={g.weekly.net < 0 ? 'negative' : 'positive'}>{amount(g.weekly.net)}<ConvertedMoney amount={g.weekly.net} currency={g.currency} baseCurrency={baseCurrency} /></strong></div>)}
         <button className="metric-meta metric-count" onClick={() => onRange(week.start, week.end)}>{week.start} ～ {week.end} · {groups.reduce((s, g) => s + g.weekly.count, 0)} {tx(' 筆 →')}</button>
       </article>
