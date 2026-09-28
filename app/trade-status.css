@@ -7,7 +7,7 @@
 .status-card>p{color:var(--muted-foreground);font-size:12px;line-height:1.6;margin-top:8px}
 .status-full{grid-column:1/-1}
 .status-hero{display:grid;grid-template-columns:minmax(0,1fr) 112px;align-content:start;align-items:center;gap:5px 8px;min-height:196px}
-.status-hero h2{grid-column:1/-1;font-size:15px}
+.status-hero>header{grid-column:1/-1;margin-bottom:0}.status-hero h2{grid-column:auto;font-size:15px}
 .status-score-value{display:flex;align-items:baseline;gap:5px}
 .status-score-value strong{font-size:42px;line-height:1;color:var(--profit-color);font-variant-numeric:tabular-nums}
 .status-score-value small{color:var(--muted-foreground);font-size:12px}
@@ -58,6 +58,7 @@
 .market-metrics-card{min-width:0;padding:13px;border:1px solid var(--border);border-radius:9px;background:color-mix(in srgb,var(--card) 92%,var(--muted))}
 .market-metrics-card>header{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 0 9px}
 .market-metrics-card>header h3{font-size:13px;font-weight:650}
+.market-metric-heading,.time-chart-heading{display:flex;align-items:center;gap:8px;min-width:0}.market-metric-heading h3,.time-chart-heading h3{min-width:0;overflow-wrap:anywhere}
 .market-metrics-card>header span{font-size:11px;color:var(--muted-foreground);white-space:nowrap}
 .market-metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
 .market-metric{display:grid;align-content:start;gap:5px;min-width:0;min-height:58px;padding:9px 10px;border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:7px;background:var(--background)}
@@ -73,3 +74,5 @@
 @media(max-width:600px){.status-grid{grid-template-columns:1fr}.status-full,.best-day-card,.market-metrics-section{grid-column:auto}.market-metrics-grid{grid-template-columns:1fr}.market-metric-grid{gap:6px}.market-metric{padding:8px}.summary-columns{grid-template-columns:1fr}.status-card{padding:15px}.status-hero{grid-template-columns:minmax(0,1fr) 100px}.score-gauge{width:92px;height:92px}.score-gauge:after{inset:14px}.status-chart{height:290px}.time-chart-product{padding:10px 7px 6px}.time-chart-product>header{align-items:flex-start;flex-direction:column;gap:3px}.status-switch button{padding:5px 6px}.time-chart-actions{gap:5px}.best-day-top>strong{font-size:15px}.best-day-share strong{font-size:18px}}
 
 .status-chart,.status-chart .recharts-surface{cursor:crosshair}.status-chart .recharts-tooltip-cursor{stroke:var(--foreground)!important;stroke-opacity:.92!important;stroke-width:2px!important;stroke-dasharray:3 3!important}
+
+.status-card-heading{display:flex;align-items:center;gap:10px;min-width:0}.status-card-title{display:flex;align-items:center;gap:8px;min-width:0}.status-card-title h2{min-width:0}.favorite-star-button{display:inline-grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--muted-foreground);cursor:pointer;transition:color .15s ease,background-color .15s ease,border-color .15s ease}.favorite-star-button:hover,.favorite-star-button:focus-visible{color:#f5c542;background:color-mix(in srgb,#f5c542 12%,transparent);border-color:color-mix(in srgb,#f5c542 48%,transparent)}.favorite-star-button.active{color:#f5c542}.favorite-star-button.active svg{fill:currentColor}.favorite-star-button:focus-visible{outline:2px solid color-mix(in srgb,#f5c542 72%,var(--foreground));outline-offset:2px}.favorite-target-highlight{outline:2px solid color-mix(in srgb,#f5c542 72%,var(--foreground));outline-offset:3px;transition:outline-color .25s ease}.status-card-heading .favorite-star-button{margin-left:-4px}.market-metric-heading .favorite-star-button,.time-chart-heading .favorite-star-button{width:25px;height:25px}.market-metric-heading h3,.time-chart-heading h3{font-size:13px;font-weight:650}.favorite-sidebar-link{padding-left:27px!important}.journal-sidebar .favorite-list-star{width:14px;height:14px;color:#f5c542}.journal-sidebar .favorites-chevron{margin-left:auto;transition:transform .2s}.journal-sidebar .favorites-chevron.open{transform:rotate(180deg)}.journal-sidebar .favorite-empty{display:block;padding:5px 9px 10px 30px;color:var(--muted-foreground);font-size:11px;line-height:1.5}
