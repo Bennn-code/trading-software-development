@@ -97,6 +97,7 @@
 - 進入設定、帳號及登入時曾回報載入慢；重新開站及切換示範資料時也曾回報交易載入慢。優先檢查重複請求、載入順序、快取、首次 hydration 和不必要的整批重載。
 - 忘記密碼入口放在註冊／登入附近。
 - 隱私政策目前不放公開 email；清楚列出設定內的資料匯出、刪除操作及使用者權利。
+- 設定中的完整 JSON 備份與交易總覽 CSV 匯出都共用另存新檔流程，讓使用者選擇本機儲存位置；使用者取消選擇時不應顯示匯出成功。瀏覽器不支援檔案選擇 API 時沿用標準下載流程。
 - 帳號註銷要求三次確認並先下載完整資料；按鈕位置為左側「確認註銷」、右側綠色「取消註銷」。正式對外服務前要驗證匯出完整性、刪除交易與圖片關聯資料、工作階段失效及資料庫權限。
 
 ### 8. 安全、營運及依賴
@@ -108,14 +109,15 @@
 ## 最近確認的正式網站狀態
 
 - Sites 專案：`.openai/hosting.json` 指向既有交易手記 Site。
-- 正式版本：**v59**；正式網址：`https://tradersregion.com`。
+- 正式版本：**v60**；正式網址：`https://tradersregion.com`。
 - v54：調整交易時段以進場日期歸屬統計期間，持倉圖以出場減進場；損益報表期間維持出場日期。
 - v55：在最佳／最低勝率卡片加入交易時段與持倉時間統計說明，保留兩個圖表切換按鈕。
 - v56：使用者指出問號應懸停顯示、不需點擊；問號已改成 hover 提示，鍵盤聚焦可讀。TypeScript、`app/trade-status.tsx` ESLint 及 production build 通過。
 - v57：已發布到既有正式網址，確認仍為 `custom` 存取、只有擁有者在允許清單；沒有另外推送使用者的 GitHub。
 - v58：設定內時區及主要換算幣別改用共用選單；週期按鈕、自訂日期欄位和下拉選項統一手掌游標、懸停框線及鍵盤焦點回饋。TypeScript、週期統計測試與 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
 - v59：完整資料匯出先開啟瀏覽器另存新檔視窗，讓使用者選擇儲存位置；不支援檔案選擇 API 的瀏覽器保留原本下載流程。設定內盈虧顏色選項加入手掌游標、懸停框線與鍵盤焦點回饋。TypeScript、帳號驗證測試、修改檔案 ESLint 及 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
-- 發布流程會提交 Sites 專用 source repository 以產生 Site 版本；v57、v58、v59 均沒有另外推送使用者的 GitHub。
+- v60：設定內完整 JSON 備份與交易總覽 CSV 共用可選擇儲存位置的流程，保留原有資料和篩選內容；取消選擇不顯示成功訊息。TypeScript、帳號驗證測試、修改檔案 ESLint（略過未修改的既有 recovery effect 規則）及 production build 通過並完成正式部署。一般 ESLint 仍有 `app/account-settings.tsx` recovery effect 的既存 `react-hooks/set-state-in-effect` 錯誤，該段未改。
+- 發布流程會提交 Sites 專用 source repository 以產生 Site 版本；v57、v58、v59、v60 均沒有另外推送使用者的 GitHub。
 - Sites 後台最後查得 `access_mode=custom`，允許清單只有擁有者、外部訪客數為 0。使用者早先提出未來要開放大眾註冊，因此「應用程式本身註冊功能」和「Sites 網站入口是否允許大眾訪問」仍需正式驗證。
 - 使用者曾要求 GitHub 保留版本紀錄、讓最新版本顯示在專案首頁／README；但之後多次要求先不要推 GitHub。因此這是「明確要求 GitHub 時的發布偏好」，不是目前每次網站部署的自動步驟。
 

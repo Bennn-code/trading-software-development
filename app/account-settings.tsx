@@ -7,6 +7,7 @@ import AboutPrivacy from './about-privacy';
 import type { Account } from '@/lib/account-auth';
 import { getAccountBootstrap, updateAccountBootstrap, type AccountBootstrap } from '@/lib/account-client';
 import { timezoneOptions,baseCurrencies,currencyName,utcOffsetLabel,type UserPreferences } from '@/lib/preferences';
+import { chooseExportDestination, isExportCancelled, saveExportFile } from '@/lib/export-file';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export type AccountSettingsInfo=AccountBootstrap;
@@ -87,35 +88,22 @@ function DataSecurity({account,deletionReady}:{account:Account;deletionReady:boo
  const {t}=useI18n();const [events,setEvents]=useState<SecurityEvent[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[exportToken,setExportToken]=useState('');
  const [step,setStep]=useState(0),[downloadConfirmed,setDownloadConfirmed]=useState(false),[typedEmail,setTypedEmail]=useState(''),[phrase,setPhrase]=useState(''),[password,setPassword]=useState('');
  useEffect(()=>{const controller=new AbortController();fetch('/api/account/security-events',{signal:controller.signal}).then(async response=>{if(!response.ok)return;const payload=await response.json() as {events?:unknown};if(Array.isArray(payload.events))setEvents(payload.events.filter((event):event is SecurityEvent=>!!event&&typeof event==='object'&&typeof (event as SecurityEvent).type==='string'&&typeof (event as SecurityEvent).label==='string'&&typeof (event as SecurityEvent).createdAt==='string'));}).catch(()=>{});return()=>controller.abort();},[]);
- type SaveFileHandle={createWritable:()=>Promise<{write:(data:Blob)=>Promise<void>;close:()=>Promise<void>;abort?:()=>Promise<void>}>};
- type SaveFilePickerWindow=Window&{showSaveFilePicker?:(options:{suggestedName:string;types:{description:string;accept:Record<string,string[]>}[]})=>Promise<SaveFileHandle>};
  async function downloadAll(){
   const filename=`tradersregion-backup-${new Date().toISOString().slice(0,10)}.json`;
-  const picker=(window as SaveFilePickerWindow).showSaveFilePicker;
-  // Open the native Save As dialog before awaiting so browsers retain the user's click activation.
-  let fileHandlePromise:Promise<SaveFileHandle|null>;
-  try{fileHandlePromise=picker?picker.call(window,{suggestedName:filename,types:[{description:'JSON',accept:{'application/json':['.json']}}]}):Promise.resolve(null);}
-  catch(e){setError(e instanceof Error?e.message:'無法開啟檔案儲存視窗。');return;}
+  const destinationPromise=chooseExportDestination(filename,'application/json','.json','JSON');
   setBusy(true);setError('');
   try{
-   const fileHandle=await fileHandlePromise;
+   const destination=await destinationPromise;
+   if(destination.kind==='cancelled')return;
    const response=await fetch('/api/account/export',{method:'POST'});
    if(!response.ok){const d=await response.json() as{error?:string};throw new Error(d.error);}
    const token=response.headers.get('x-account-export-token');
    if(!token)throw new Error('下載憑證建立失敗，請重試。');
    const blob=await response.blob();
-   if(fileHandle){
-    const writable=await fileHandle.createWritable();
-    try{await writable.write(blob);await writable.close();}
-    catch(error){await writable.abort?.();throw error;}
-   }else{
-    const url=URL.createObjectURL(blob),link=document.createElement('a');
-    link.href=url;link.download=filename;link.click();
-    setTimeout(()=>URL.revokeObjectURL(url),1000);
-   }
+   if(!await saveExportFile(blob,filename,destination))return;
    setExportToken(token);setDownloadConfirmed(false);
   }catch(e){
-   if(!(e&&typeof e==='object'&&'name'in e&&(e as{name?:string}).name==='AbortError'))setError(e instanceof Error?e.message:'下載失敗，請重試。');
+   if(!isExportCancelled(e))setError(e instanceof Error?e.message:'下載失敗，請重試。');
   }finally{setBusy(false);}
  }
  function cancel(){setStep(0);setDownloadConfirmed(false);setTypedEmail('');setPhrase('');setPassword('');setError('');}

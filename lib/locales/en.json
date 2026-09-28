@@ -185,6 +185,7 @@
   "尚未寫下心得。回想進出場的決策，為下次交易留下線索。": "No notes yet. Reflect on your entry and exit decisions for your next trade.",
   "已分別儲存 {0} 筆交易{1}": "Saved {0} separate trades{1}",
   "已匯出目前篩選的交易": "Filtered trades exported",
+  "匯出失敗，請重試。": "Export failed. Please try again.",
   "已取消重複匯入，未新增交易。": "Duplicate import cancelled. No trades added.",
   "已取消重複新增，交易尚未儲存。": "Duplicate cancelled. Trade not saved.",
   "已完成兩次確認；這筆將另存一份。": "Confirmed twice; this trade will be saved as another record.",
