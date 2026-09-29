@@ -1,18 +1,27 @@
 import fs from 'node:fs';import ts from 'typescript';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
-for(const name of ['trades','trade-duplicates']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
-const require=createRequire(new URL('../work/',import.meta.url)),{findTradeMatches,tradeMatchKey}=require('./trade-duplicates.cjs'),{newTrade}=require('./trades.cjs');
-const original={...newTrade(),id:'old',entryTime:'2026-09-01T10:00',exitTime:'2026-09-01T10:20',entry:100,exit:110,quantity:2,netOverride:40,profitBasis:'gross'},copy={...original,id:'copy',imageId:'different-image'};
+for(const name of ['trades','display-currency','trade-duplicates']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
+const require=createRequire(new URL('../work/',import.meta.url)),{findTradeMatches,tradeMatchKey,tradeExitScanRange}=require('./trade-duplicates.cjs'),{newTrade}=require('./trades.cjs');
+const original={...newTrade(),id:'old',market:'futures',symbol:'MNQ',currency:'USD',timezone:'Asia/Taipei',entryTime:'2026-09-01T10:00',exitTime:'2026-09-01T10:20',entry:100,exit:110,quantity:2,netOverride:40,profitBasis:'gross'},copy={...original,id:'copy',imageId:'different-image'};
 assert.equal(findTradeMatches([copy],[original]).length,1,'overlapping screenshots are matched by trade, not image');
-for(const change of [{entryTime:'2026-09-01T10:01'},{exitTime:'2026-09-01T10:21'},{entry:100.0001},{exit:110.0001},{quantity:3},{netOverride:40.001},{symbol:'ES'}])assert.equal(findTradeMatches([{...copy,...change}],[original]).length,0,JSON.stringify(change));
+for(const change of [{entryTime:'2026-09-01T10:01'},{exitTime:'2026-09-01T10:21'},{entry:100.0001},{exit:110.0001},{netOverride:40.01},{symbol:'ES'}])assert.equal(findTradeMatches([{...copy,...change}],[original]).length,0,JSON.stringify(change));
+assert.equal(findTradeMatches([{...copy,quantity:0}],[original]).length,1,'missing quantity does not block matching when the recorded P&L and prices are present');
+assert.equal(findTradeMatches([{...copy,quantity:3}],[original]).length,1,'quantity is not a duplicate criterion when P&L is the same');
 assert.equal(findTradeMatches([{...copy,profitBasis:'net'}],[original]).length,1,'AI-only gross/net classification cannot bypass an exact transaction duplicate');
 assert.equal(findTradeMatches([{...copy,side:'short',currency:'USDT'}],[original]).length,1,'AI-only side/currency classification cannot bypass an exact transaction duplicate');
+assert.equal(findTradeMatches([{...copy,market:'crypto'}],[original]).length,0,'market identity prevents matching the same ticker from another market');
 assert.equal(findTradeMatches([{...copy,account:'另一帳戶',notes:'changed',strategy:'changed'}],[original]).length,1,'matching criteria do not depend on notes or screenshot account labels');
+const otherZone={...copy,entryTime:'2026-08-31T19:00',exitTime:'2026-08-31T19:20',timezone:'America/Los_Angeles'};
+assert.equal(findTradeMatches([otherZone],[original]).length,1,'equivalent entry/exit instants match after timezone normalization');
+assert.equal(findTradeMatches([{...copy,entryTime:'2026-09-01T10:00:59',exitTime:'2026-09-01T10:20:31'}],[original]).length,1,'seconds do not cause a miss when the stored trade UI uses minute precision');
+assert.equal(findTradeMatches([{...copy,entry:100.000000000001}],[original]).length,1,'floating-point representation noise is normalized');
 assert.equal(findTradeMatches([original],[original]).length,0,'saved IDs are idempotent retries');
 assert.deepEqual(findTradeMatches([original,copy],[])[0].matchIds,['old'],'duplicates in same import only flag later rows');
 assert.equal(tradeMatchKey({...copy,entry:0}),null);assert.equal(tradeMatchKey({...copy,entryTime:''}),null);
+assert.equal(tradeMatchKey({...copy,quantity:0,netOverride:null}),null,'unknown size cannot be used to invent an automatically calculated P&L');
 const crypto={...original,market:'crypto',symbol:'BTCUSDT',currency:'USDT',positionValue:200,quantity:2};
-assert.equal(findTradeMatches([{...crypto,id:'copy',quantity:99}],[crypto]).length,1,'explicit position value drives crypto size');
-assert.equal(findTradeMatches([{...crypto,id:'copy',positionValue:201}],[crypto]).length,0);
+assert.equal(findTradeMatches([{...crypto,id:'copy',quantity:99}],[crypto]).length,1,'quantity does not participate when recorded P&L is unchanged');
+assert.equal(findTradeMatches([{...crypto,id:'copy',positionValue:201}],[crypto]).length,1,'position size does not participate when recorded P&L is unchanged');
 assert.equal(findTradeMatches([{...crypto,id:'copy',positionValue:null,quantity:2}],[crypto]).length,1);
 assert.equal(tradeMatchKey({...copy,entryTime:'2026-09-01T10:00:00'}),tradeMatchKey(copy));
-console.log('Passed exact trade matching across screenshots, distinct fields/products, crypto position value, missing data, batch overlap and idempotent IDs.');
+const scan=tradeExitScanRange(otherZone);assert.ok(scan&&scan[0]<='2026-09-01T10:20'&&scan[1]>'2026-09-01T10:20','indexed scan includes equivalent local times from other zones');
+console.log('Passed cross-screenshot matching by symbol, UTC-normalized minute times, entry/exit prices and displayed net P&L, including missing quantity, mixed timezone, precision noise, batch overlap and idempotent IDs.');

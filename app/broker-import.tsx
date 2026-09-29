@@ -151,7 +151,7 @@ export default function BrokerImport({ open, onClose, onSaved, accounts = [], ac
         if (!response.ok) throw new Error(data.error || '無法檢查重複交易');
         const map = Object.fromEntries(data.duplicates.map(item => [item.tradeId, item]));
         setDuplicates(map);
-        setRows(list => list.map(row => map[row.trade.id]?.step < 2 ? { ...row, selected: false, confirmed: false } : row));
+        setRows(list => list.map(row => map[row.trade.id]?.step < 1 ? { ...row, selected: false, confirmed: false } : row));
       } catch (cause) {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '無法檢查重複交易');
       }
@@ -227,7 +227,7 @@ export default function BrokerImport({ open, onClose, onSaved, accounts = [], ac
       const data = await response.json() as { duplicate: TradeDuplicate; error?: string };
       if (!response.ok) throw new Error(data.error || '確認失敗');
       setDuplicates(current => ({ ...current, [id]: data.duplicate }));
-      if (data.duplicate.step === 2) setRows(list => list.map(row => row.trade.id === id ? { ...row, selected: true } : row));
+      if (data.duplicate.step >= 1) setRows(list => list.map(row => row.trade.id === id ? { ...row, selected: true } : row));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '確認失敗');
     } finally {
@@ -263,7 +263,7 @@ export default function BrokerImport({ open, onClose, onSaved, accounts = [], ac
         const map = Object.fromEntries(data.tradeDuplicates.map(item => [item.tradeId, item]));
         setDuplicates(previous => ({ ...previous, ...map }));
         setRows(list => list.map(row => map[row.trade.id] ? { ...row, selected: false, confirmed: false } : row));
-        throw new Error('重複交易已標紅並取消勾選；請略過或完成兩次確認。');
+        throw new Error('重複交易已標紅並取消勾選；請略過或完成一次確認。');
       }
       if (!response.ok) throw new Error(data.error || '儲存失敗');
       onSaved(trades, data.saved, data.skipped, targetProfileId);
@@ -341,9 +341,9 @@ export default function BrokerImport({ open, onClose, onSaved, accounts = [], ac
         <div className="broker-review-head"><button type="button" className="outline-button" onClick={() => { setRows([]); setDuplicates({}); }}><ArrowLeft size={16}/>{tx(method === 'api' ? '返回 API 設定' : '重選檔案')}</button><div><strong>{guide ? tx(guide.name) : apiGuide ? tx(apiGuide.name) : ''}</strong><span>{rows.length} {tx('筆交易待核對')}</span></div><button type="button" className="text-button" onClick={() => setRows(list => list.map(item => item.selected ? { ...item, confirmed: true } : item))}><CheckCircle2 size={16}/>{tx('核對所有已選項目')}</button></div>
         <div className="broker-review-layout"><aside>{rows.map((item, index) => {
           const duplicate = duplicates[item.trade.id];
-          return <button type="button" key={item.trade.id} className={`${active === index ? 'active ' : ''}${duplicate && duplicate.step < 2 ? 'duplicate' : ''}`} onClick={() => setActive(index)}><input type="checkbox" checked={item.selected} onClick={event => event.stopPropagation()} onChange={event => setRows(list => list.map((entry, entryIndex) => entryIndex === index ? { ...entry, selected: event.target.checked, confirmed: false } : entry))}/><span><strong>{index + 1}. {item.trade.symbol}</strong><small>{item.trade.exitTime.replace('T', ' ')} · {item.trade.currency}</small></span>{item.confirmed && <CheckCircle2 size={16}/>}</button>;
+          return <button type="button" key={item.trade.id} className={`${active === index ? 'active ' : ''}${duplicate && duplicate.step < 1 ? 'duplicate' : ''}`} onClick={() => setActive(index)}><input type="checkbox" checked={item.selected} onClick={event => event.stopPropagation()} onChange={event => setRows(list => list.map((entry, entryIndex) => entryIndex === index ? { ...entry, selected: event.target.checked, confirmed: false } : entry))}/><span><strong>{index + 1}. {item.trade.symbol}</strong><small>{item.trade.exitTime.replace('T', ' ')} · {item.trade.currency}</small></span>{item.confirmed && <CheckCircle2 size={16}/>}</button>;
         })}</aside>
-          {row && <section className="broker-edit"><div className="broker-edit-heading"><div><h3>{tx('修改與核對')}</h3><p>{tx(method === 'api' ? 'API 來源第 {0} 筆' : '來源檔案第 {0} 列', [row.sourceRow])}</p></div><button type="button" aria-label={tx('取消選取')} onClick={() => setRows(list => list.map((item, index) => index === active ? { ...item, selected: false, confirmed: false } : item))}><X/></button></div>{row.warnings.length > 0 && <ul className="import-warnings">{row.warnings.map(warning => <li key={warning}>{tx(warning)}</li>)}</ul>}{duplicates[row.trade.id] && <TradeDuplicateWarning duplicate={duplicates[row.trade.id]} busy={!!busy} onConfirm={() => void confirmDuplicate(row.trade.id)}/>}<TradeFields key={row.trade.id} trade={row.trade} onChange={trade => update(active, trade)} notes={false}/><label className="checkbox-label confirm-row"><input type="checkbox" checked={row.confirmed} disabled={!row.selected || !!duplicates[row.trade.id] && duplicates[row.trade.id].step < 2} onChange={event => setRows(list => list.map((item, index) => index === active ? { ...item, confirmed: event.target.checked } : item))}/>{tx('已核對這筆交易')}</label>{rowIssue && !rowIssue.success && <p className="form-error">{tradeIssueMessage(rowIssue.error.issues[0])}</p>}</section>}
+          {row && <section className="broker-edit"><div className="broker-edit-heading"><div><h3>{tx('修改與核對')}</h3><p>{tx(method === 'api' ? 'API 來源第 {0} 筆' : '來源檔案第 {0} 列', [row.sourceRow])}</p></div><button type="button" aria-label={tx('取消選取')} onClick={() => setRows(list => list.map((item, index) => index === active ? { ...item, selected: false, confirmed: false } : item))}><X/></button></div>{row.warnings.length > 0 && <ul className="import-warnings">{row.warnings.map(warning => <li key={warning}>{tx(warning)}</li>)}</ul>}{duplicates[row.trade.id] && <TradeDuplicateWarning duplicate={duplicates[row.trade.id]} busy={!!busy} onConfirm={() => void confirmDuplicate(row.trade.id)}/>}<TradeFields key={row.trade.id} trade={row.trade} onChange={trade => update(active, trade)} notes={false}/><label className="checkbox-label confirm-row"><input type="checkbox" checked={row.confirmed} disabled={!row.selected || !!duplicates[row.trade.id] && duplicates[row.trade.id].step < 1} onChange={event => setRows(list => list.map((item, index) => index === active ? { ...item, confirmed: event.target.checked } : item))}/>{tx('已核對這筆交易')}</label>{rowIssue && !rowIssue.success && <p className="form-error">{tradeIssueMessage(rowIssue.error.issues[0])}</p>}</section>}
         </div>
         <div className="broker-review-footer"><span>{rows.filter(item => item.selected).length} {tx('筆已選取')} · {rows.filter(item => item.selected && item.confirmed).length} {tx('筆已核對')}</span><button type="button" className="primary-button" disabled={!!busy} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" size={17}/> : <Upload size={17}/>} {tx('儲存選取交易')}</button></div>
       </div>}

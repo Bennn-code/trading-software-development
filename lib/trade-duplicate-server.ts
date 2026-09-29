@@ -1,5 +1,5 @@
 import { db,ApiError } from './server';
-import { findTradeMatches,tradeMatchKey,type TradeDuplicate } from './trade-duplicates';
+import { findTradeMatches,tradeExitScanRange,tradeMatchKey,type TradeDuplicate } from './trade-duplicates';
 import type { Trade } from './trades';
 import { activeProfile } from './profiles';
 const lifetime=30*60*1000;
@@ -9,15 +9,13 @@ export async function checkTradeDuplicates(owner:string,trades:Trade[],requested
  const candidates=trades.filter(trade=>tradeMatchKey(trade));
  if(!candidates.length)return [];
 
- // exit_time is indexed per user/profile. Restrict the duplicate scan to the
- // only dates that can match instead of loading and parsing the whole account.
- const exitTimes=[...new Set(candidates.flatMap(trade=>{
-  const match=trade.exitTime.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2}))?$/);
-  return match?match[2]?match[2]==='00'?[trade.exitTime,match[1]]:[trade.exitTime]:[trade.exitTime,`${match[1]}:00`]:[];
- }))];
- const chunks:string[][]=[];
- for(let index=0;index<exitTimes.length;index+=40)chunks.push(exitTimes.slice(index,index+40));
- const existingRows=(await Promise.all(chunks.map(chunk=>database.prepare(`SELECT payload FROM trades WHERE user_id=? AND profile_id=? AND exit_time IN (${chunk.map(()=>'?').join(',')})`).bind(owner,profileId,...chunk).all<{payload:string}>()))).flatMap(result=>result.results);
+ // Stored trade timestamps are local to their source timezone. Scan a narrow
+ // indexed window around each UTC minute so imports made in another timezone
+ // (and legacy rows with seconds) are included without loading the account.
+ const ranges=[...new Map(candidates.flatMap(trade=>{const range=tradeExitScanRange(trade);return range?[[range.join('|'),range] as const]:[]})).values()];
+ const chunks:[string,string][][]=[];
+ for(let index=0;index<ranges.length;index+=30)chunks.push(ranges.slice(index,index+30));
+ const existingRows=(await Promise.all(chunks.map(chunk=>database.prepare(`SELECT payload FROM trades WHERE user_id=? AND profile_id=? AND (${chunk.map(()=>'(exit_time>=? AND exit_time<?)').join(' OR ')})`).bind(owner,profileId,...chunk.flat()).all<{payload:string}>()))).flatMap(result=>result.results);
  const matches=findTradeMatches(trades,existingRows.map(row=>JSON.parse(row.payload) as Trade));
  if(!matches.length)return [];
 
@@ -42,8 +40,9 @@ export async function checkTradeDuplicates(owner:string,trades:Trade[],requested
 export async function confirmTradeDuplicate(owner:string,trades:Trade[],tradeId:string,step:number,fingerprint:string,profileId?:string){
  const duplicates=await checkTradeDuplicates(owner,trades,profileId),match=duplicates.find(d=>d.tradeId===tradeId);
  if(!match||match.fingerprint!==fingerprint)throw new ApiError('交易或比對結果已變更，請重新檢查並確認。',409);
- if(step!==match.step+1||![1,2].includes(step))throw new ApiError('請依序完成兩次確認。',409);
+ if(step!==1)throw new ApiError('這筆重複交易已完成一次確認，請重新整理清單。',409);
+ if(match.step>=1)return match;
  const changed=await db().prepare('UPDATE import_duplicate_approvals SET step=?,expires_at=? WHERE user_id=? AND trade_id=? AND fingerprint=? AND step=? AND expires_at>?').bind(step,Date.now()+lifetime,owner,tradeId,fingerprint,step-1,Date.now()).run();
- if(!changed.meta.changes)throw new ApiError('確認已過期或狀態已更新，請重新檢查。',409);
+ if(!changed.meta.changes){const latest=(await checkTradeDuplicates(owner,trades,profileId)).find(d=>d.tradeId===tradeId);if(latest?.fingerprint===fingerprint&&latest.step>=1)return latest;throw new ApiError('確認已過期或狀態已更新，請重新檢查。',409);}
  return {...match,step};
 }
