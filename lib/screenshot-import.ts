@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { marketCurrencies, multipliers, type Trade } from './trades';
+import { isFuturesMarket, marketCurrencies, multipliers, multiplierForSymbol, type Trade } from './trades';
 const number=z.number().finite().nullable();
 const text=z.string().max(300).nullable();
 const fill=z.object({price:z.number().finite().positive(),quantity:z.number().finite().positive()});
 export const extractedRowSchema=z.object({
- sourceLabel:z.string().max(200),symbol:text,market:z.enum(['futures','crypto','tw-stocks','cn-stocks','hk-stocks']).nullable(),side:z.enum(['long','short']).nullable(),
+ sourceLabel:z.string().max(200),symbol:text,market:z.enum(['futures','tw-index-futures','crypto','us-stocks','tw-stocks','cn-stocks','hk-stocks']).nullable(),side:z.enum(['long','short']).nullable(),
  currency:z.enum(['USD','USDT','TWD','CNY','HKD']).nullable(),entryTime:text,exitTime:text,entry:number,exit:number,quantity:number,multiplier:number,
  commission:number.optional(),commissionSource:text.optional(),transactionTax:number.optional(),transactionTaxSource:text.optional(),feeSource:text.optional(),fundingSource:text.optional(),positionValue:number.optional(),fees:number,feeMode:z.enum(['paid','rebate']).nullable().optional(),funding:number,netProfit:number,netProfitIsNet:z.boolean(),strategy:text,
  entryFills:z.array(fill).max(100),exitFills:z.array(fill).max(100),completeFillHistory:z.boolean(),
@@ -16,7 +16,7 @@ export type ImportCandidate={trade:Trade;warnings:string[];sourceLabel:string;en
 const nullable=(type:string)=>({type:[type,'null']});
 const fillJson={type:'object',properties:{price:{type:'number'},quantity:{type:'number'}},required:['price','quantity'],additionalProperties:false};
 const properties={
- sourceLabel:{type:'string'},symbol:nullable('string'),market:{type:['string','null'],enum:['futures','crypto','tw-stocks','cn-stocks','hk-stocks',null]},side:{type:['string','null'],enum:['long','short',null]},currency:{type:['string','null'],enum:['USD','USDT','TWD','CNY','HKD',null]},
+ sourceLabel:{type:'string'},symbol:nullable('string'),market:{type:['string','null'],enum:['futures','tw-index-futures','crypto','us-stocks','tw-stocks','cn-stocks','hk-stocks',null]},side:{type:['string','null'],enum:['long','short',null]},currency:{type:['string','null'],enum:['USD','USDT','TWD','CNY','HKD',null]},
  entryTime:nullable('string'),exitTime:nullable('string'),entry:nullable('number'),exit:nullable('number'),quantity:nullable('number'),multiplier:nullable('number'),commission:nullable('number'),commissionSource:nullable('string'),transactionTax:nullable('number'),transactionTaxSource:nullable('string'),feeSource:nullable('string'),fundingSource:nullable('string'),positionValue:nullable('number'),fees:nullable('number'),feeMode:{type:['string','null'],enum:['paid','rebate',null]},funding:nullable('number'),netProfit:nullable('number'),netProfitIsNet:{type:'boolean'},strategy:nullable('string'),
  entryFills:{type:'array',items:fillJson},exitFills:{type:'array',items:fillJson},completeFillHistory:{type:'boolean'},warnings:{type:'array',items:{type:'string'}},
 };
@@ -47,12 +47,13 @@ export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;
 
  if((row.entryFills.length||row.exitFills.length)&&!canAverage&&(row.entry===null||row.exit===null))warnings.push('成交明細不完整或進出數量不同，不能可靠計算加權均價，請補齊。');
  const symbol=(row.symbol??'').trim().toUpperCase();
- const futuresRoot=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(s=>symbol===s||new RegExp('^'+s+'[FGHJKMNQUVXZ]\\d{1,4}$').test(symbol));
- const market=/USDT(?:$|[^A-Z])|永續/i.test(symbol)?'crypto':row.market??(row.currency==='TWD'?'tw-stocks':row.currency==='CNY'?'cn-stocks':row.currency==='HKD'?'hk-stocks':'futures');
- const multiplier=market==='futures'?row.multiplier??(futuresRoot?multipliers[futuresRoot]:0):1;
+ const futuresRoot=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(s=>symbol===s||symbol.startsWith(s));
+ const isTaiwanIndexFutures=!!futuresRoot&&['TX','TXF','MTX','MXF','TMF'].includes(futuresRoot);
+ const market=/USDT(?:$|[^A-Z])|永續/i.test(symbol)?'crypto':isTaiwanIndexFutures?'tw-index-futures':row.market??(row.currency==='TWD'?'tw-stocks':row.currency==='CNY'?'cn-stocks':row.currency==='HKD'?'hk-stocks':'futures');
+ const multiplier=isFuturesMarket(market)?row.multiplier??multiplierForSymbol(symbol,market==='tw-index-futures'?200:0):1;
  if(row.market==='crypto'&&row.multiplier!==null&&row.multiplier!==1)warnings.push('此商品的合約乘數不是 1；請改用帳單淨損益，並確認金額與幣別。');
 
- const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market,side:row.side??'long',currency:row.currency??marketCurrencies[market],entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,positionValue:row.positionValue??null,commission:row.commission==null?null:Math.abs(row.commission),transactionTax:row.transactionTax==null?null:Math.abs(row.transactionTax),fees:row.fees==null?null:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees),feeMode:row.feeMode??'paid',funding:row.funding??null,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
+ const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market,side:row.side??'long',currency:market==='tw-index-futures'?marketCurrencies[market]:row.currency??marketCurrencies[market],entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,positionValue:row.positionValue??null,commission:row.commission==null?null:Math.abs(row.commission),transactionTax:row.transactionTax==null?null:Math.abs(row.transactionTax),fees:row.fees==null?null:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees),feeMode:row.feeMode??'paid',funding:row.funding??null,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
  return {trade,costSources:[row.commissionSource,row.transactionTaxSource,row.feeSource,row.fundingSource].filter((s):s is string=>!!s),warnings:[...new Set(warnings)],sourceLabel:row.sourceLabel,entryBasis:row.entry!==null?'由截圖直接辨識':entry!==null?'由完整成交明細加權計算':'未能辨識，請補填',exitBasis:row.exit!==null?'由截圖直接辨識':exit!==null?'由完整成交明細加權計算':'未能辨識，請補填',selected:true,confirmed:false};
 }
 export async function stableImportId(owner:string,digest:string,index:number){const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${owner}:${digest}:${index}`));const hex=Array.from(new Uint8Array(bytes)).map(b=>b.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-5${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;}

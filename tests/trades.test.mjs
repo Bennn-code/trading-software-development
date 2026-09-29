@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 fs.mkdirSync('work',{recursive:true});
 const require=createRequire(new URL('../work/',import.meta.url));
 for(const name of ['trades','validation','screenshot-import','vision','trade-duplicates','periods','report-period','reviews']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./periods"','"./periods.cjs"').replaceAll('"./report-period"','"./report-period.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
-const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade}=require('./trades.cjs');
+const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade,marketCurrencies,multiplierForSymbol}=require('./trades.cjs');
 const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
 const {extractScreenshot}=require('./vision.cjs');
@@ -25,6 +25,13 @@ assert.equal(pnl({...t,netOverride:1000,profitBasis:'gross',transactionTax:3}),9
 assert.equal(pnl({...t,netOverride:1000,profitBasis:'net',transactionTax:3}),1000,'net P&L never double deducts securities transaction tax');
 assert.equal(pnl({...t,netOverride:0}),0,'zero is an override');
 assert.equal(pnl({...t,market:'futures',quantity:2,multiplier:20,fees:5,funding:0}),395);
+assert.equal(marketCurrencies['tw-index-futures'],'TWD');
+assert.equal(multiplierForSymbol('TXFF6'),200);
+assert.equal(multiplierForSymbol('MXFR1'),50);
+const taiwanFuture=tradeSchema.parse({...newTrade(),market:'tw-index-futures',symbol:'TXFF6',currency:'TWD',entry:100,exit:101,quantity:1,multiplier:200,commission:10,exchangeFee:12,clearingFee:8,settlementFee:5,futuresTax:4,secFee:99,transactionTax:80});
+assert.equal(taiwanFuture.secFee,null,'US regulatory costs do not carry into Taiwan index futures');
+assert.equal(taiwanFuture.transactionTax,null,'Taiwan futures tax uses its own field');
+assert.equal(pnl(taiwanFuture),161,'Taiwan futures P&L applies contract multiplier and itemized costs');
 assert.equal(pnl({...t,positionValue:undefined}),95,'old crypto records compatible');
 assert.equal(positionValue({...t,positionValue:undefined}),1000);
 for(const [input,out] of [['+1000',1000],['-1000',-1000],['+1,000.25',1000.25],['0',0],['',null],['－1000',-1000]])assert.equal(parseSignedAmount(input),out);
@@ -47,6 +54,10 @@ assert.equal(weightedPrice([{price:100,quantity:1},{price:200,quantity:3}]),175)
 const row={sourceLabel:'第1筆',symbol:'MNQ',market:'futures',side:'long',currency:'USD',entryTime:'2026-09-14T20:00',exitTime:'2026-09-14T21:00',entry:100,exit:110,quantity:1,multiplier:null,fees:null,funding:null,netProfit:null,netProfitIsNet:false,strategy:null,entryFills:[],exitFills:[],completeFillHistory:false,warnings:[]};
 const ctx={id:crypto.randomUUID(),imageId:crypto.randomUUID(),account:'測試',offset:0};
 let normalized=normalizeRow(row,ctx);assert.equal(normalized.trade.entry,100);assert.equal(normalized.trade.strategy,'');assert.equal(normalized.trade.multiplier,2);assert.equal(normalized.trade.entryTime,'2026-09-15T04:00');
+normalized=normalizeRow({...row,symbol:'TXFF6',market:'futures',currency:'USD',entry:100,exit:101,quantity:1,multiplier:null},ctx);
+assert.equal(normalized.trade.market,'tw-index-futures','TAIEX futures codes override a generic futures label');
+assert.equal(normalized.trade.currency,'TWD','TAIEX futures use TWD even when OCR currency is wrong');
+assert.equal(normalized.trade.multiplier,200);
 normalized=normalizeRow({...row,entry:null,exit:null,quantity:null,completeFillHistory:true,entryFills:[{price:100,quantity:1},{price:200,quantity:3}],exitFills:[{price:180,quantity:4}]},ctx);
 assert.equal(normalized.trade.entry,175);assert.equal(normalized.trade.exit,180);assert.equal(normalized.trade.quantity,4);
 normalized=normalizeRow({...row,entry:null,exit:null,completeFillHistory:true,entryFills:[{price:100,quantity:2}],exitFills:[{price:180,quantity:1}]},ctx);assert.equal(normalized.trade.entry,0,'partial fills must not be guessed');

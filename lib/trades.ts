@@ -1,5 +1,5 @@
 export type Trade = {
-  id: string; market: 'futures' | 'crypto' | 'us-stocks' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
+  id: string; market: 'futures' | 'tw-index-futures' | 'crypto' | 'us-stocks' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
   account: string; currency: 'USD' | 'USDT' | 'TWD' | 'CNY' | 'HKD'; entryTime: string; exitTime: string;
   timezone?: string;
   entry: number; exit: number; quantity: number; multiplier: number; fees: number | null;
@@ -8,17 +8,22 @@ export type Trade = {
   positionValue?: number | null; leverage?: number | null;
   marginMode?: 'cross' | 'isolated' | null; profitBasis?: 'net' | 'gross';
   feeMode?: 'paid' | 'rebate'; commission?: number | null; transactionTax?: number | null;
+  exchangeFee?: number | null; clearingFee?: number | null; settlementFee?: number | null; regulatoryFee?: number | null;
+  secFee?: number | null; finraFee?: number | null; futuresTax?: number | null;
 };
-export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5, YM:5, MYM:0.5, RTY:50, M2K:5, CL:1000, MCL:100, GC:100, MGC:10 };
-export const marketNames:Record<Trade['market'],string>={futures:'美國期貨',crypto:'加密貨幣','us-stocks':'美股現貨','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
-export const marketCurrencies:Record<Trade['market'],Trade['currency']>={futures:'USD',crypto:'USDT','us-stocks':'USD','tw-stocks':'TWD','cn-stocks':'CNY','hk-stocks':'HKD'};
+export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5, YM:5, MYM:0.5, RTY:50, M2K:5, CL:1000, MCL:100, GC:100, MGC:10, TX:200, TXF:200, MTX:50, MXF:50, TMF:10 };
+export const marketNames:Record<Trade['market'],string>={futures:'美股期貨','tw-index-futures':'台指期',crypto:'加密貨幣','us-stocks':'美股現貨','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
+export const marketCurrencies:Record<Trade['market'],Trade['currency']>={futures:'USD','tw-index-futures':'TWD',crypto:'USDT','us-stocks':'USD','tw-stocks':'TWD','cn-stocks':'CNY','hk-stocks':'HKD'};
 export const marketName = (v:string) => marketNames[v as Trade['market']]??v;
+export const isFuturesMarket = (market:string):market is 'futures'|'tw-index-futures' => market==='futures'||market==='tw-index-futures';
+export function multiplierForSymbol(symbol:string,fallback=1){const root=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(key=>symbol.trim().toUpperCase().startsWith(key));return root?multipliers[root]:fallback;}
 export function parseSignedAmount(text:string):number|null { const value=text.trim().replaceAll('＋','+').replaceAll('−','-').replaceAll('－','-'); if(!value)return null; if(!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value))return NaN; return Number(value.replaceAll(',','')); }
 export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.quantity; }
 export function initialMargin(t:Trade) { return t.market==='crypto'&&t.leverage&&t.leverage>0&&positionValue(t)>0 ? positionValue(t)/t.leverage : null; }
-export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(t.market==='futures'?t.multiplier:1); }
+export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(isFuturesMarket(t.market)?t.multiplier:1); }
 export function feeCost(t:Trade) { return (t.feeMode==='rebate'?-1:1)*Math.abs(t.fees??0); }
-export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-Math.abs(t.commission??0)-Math.abs(t.transactionTax??0)-feeCost(t)-(t.funding??0))*100)/100; }
+export function itemizedFeeCost(t:Trade) { return [t.exchangeFee,t.clearingFee,t.settlementFee,t.regulatoryFee,t.secFee,t.finraFee,t.futuresTax].reduce<number>((total,value)=>total+Math.abs(value??0),0); }
+export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-Math.abs(t.commission??0)-Math.abs(t.transactionTax??0)-itemizedFeeCost(t)-feeCost(t)-(t.funding??0))*100)/100; }
 export function stats(trades:Trade[]) {
   const values=trades.map(pnl); const wins=values.filter(v=>v>0), losses=values.filter(v=>v<0);
   return { net:values.reduce((s,v)=>s+v,0), count:values.length, winRate:values.length?wins.length/values.length*100:0,
@@ -26,7 +31,7 @@ export function stats(trades:Trade[]) {
     factor:losses.length?wins.reduce((s,v)=>s+v,0)/Math.abs(losses.reduce((s,v)=>s+v,0)):wins.length?Infinity:0 };
 }
 export function localTime(date = new Date(),timeZone?:string) {if(!timeZone&&typeof window!=='undefined')try{timeZone=localStorage.getItem('trade-timezone')||undefined}catch{};timeZone??='Asia/Taipei';const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),get=(key:string)=>parts.find(p=>p.type===key)?.value||'';return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;}
-export function newTrade():Trade {const timezone=typeof window!=='undefined'?localStorage.getItem('trade-timezone')||'Asia/Taipei':'Asia/Taipei';return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',timezone,entryTime:localTime(new Date(),timezone),exitTime:localTime(new Date(),timezone),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null,transactionTax:null};}
+export function newTrade():Trade {const timezone=typeof window!=='undefined'?localStorage.getItem('trade-timezone')||'Asia/Taipei':'Asia/Taipei';return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',timezone,entryTime:localTime(new Date(),timezone),exitTime:localTime(new Date(),timezone),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null};}
 export function demoTrades():Trade[] {
   const month=localTime().slice(0,7);
   const rows:[number,string,'long'|'short',number,number,string][]=[

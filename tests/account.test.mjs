@@ -35,7 +35,7 @@ function load(file) {file=path.resolve(file);if(cache.has(file))return cache.get
  function localRequire(name){if(name==='cloudflare:workers')return{env};if(name==='next/headers')return{cookies:async()=>({getAll:()=>[...context.getStore().jar].map(([name,v])=>({name,value:v.value})),set:(name,value,options)=>{if(value)context.getStore().jar.set(name,{value,options});else context.getStore().jar.delete(name);}}),headers:async()=>context.getStore().request.headers};if(name==='next/navigation')return{redirect:()=>{throw Error('unexpected redirect');}};if(name==='@/lib/security'){const security=load('lib/security.ts');return{...security,verifyTurnstile:async()=>{}};}if(name.startsWith('@/')||name.startsWith('.')){let next=name.startsWith('@/')?path.resolve(name.slice(2)):path.resolve(path.dirname(file),name);if(!path.extname(next))next+='.ts';return load(next);}return require(name);}
  const run=vm.runInThisContext(`(function(require,module,exports){${code}\n})`,{filename:file});run(localRequire,commonJsModule,commonJsModule.exports);return commonJsModule.exports;
 }
-const auth=load('app/api/account/auth/route.ts'),account=load('app/api/account/route.ts'),preferences=load('app/api/account/preferences/route.ts'),link=load('app/api/account/link/route.ts'),trades=load('app/api/trades/route.ts');
+const auth=load('app/api/account/auth/route.ts'),account=load('app/api/account/route.ts'),preferences=load('app/api/account/preferences/route.ts'),link=load('app/api/account/link/route.ts'),trades=load('app/api/trades/route.ts'),profiles=load('app/api/account/profiles/route.ts');
 const root='https://journal.test',a=new Map(),b=new Map();
 async function call(handler,jar,body,extra={}) {const request=new Request(root+'/api/test',{method:body?'POST':'GET',headers:{origin:root,'Content-Type':'application/json',...extra},...(body?{body:JSON.stringify(body)}:{})});return context.run({jar,request},()=>handler(request));}
 async function json(handler,jar,body,extra){const r=await call(handler,jar,body,extra);return{status:r.status,data:await r.json()};}
@@ -53,7 +53,7 @@ try{
  assert.equal((await call(auth.POST,a,{action:'verify',email,code:'654321'})).status,200);
  assert.ok(a.size>0);for(const c of a.values()){assert.equal(c.options.httpOnly,true);assert.equal(c.options.secure,true);assert.equal(c.options.sameSite,'lax');}
  assert.equal((await call(auth.POST,b,{action:'verify',email,code:'654321'})).status,400,'code is single use');
- assert.equal((await json(account.GET,a)).data.account.email,email);assert.ok(providerUserReads>0);
+ const bootstrap=await json(account.GET,a);assert.equal(bootstrap.data.account.email,email);assert.equal('trades' in bootstrap.data,false,'account bootstrap stays lightweight; trades load through their dedicated endpoint');assert.ok(providerUserReads>0);
  assert.equal((await call(preferences.PUT,a,{language:'en'})).status,200);assert.equal((await json(account.GET,a)).data.language,'en');
  assert.equal((await call(preferences.PUT,a,{cardLayouts:{overview:{enabled:true,items:{}}}})).status,400,'removed card layout preferences are no longer accepted');
  assert.equal((await call(preferences.PUT,a,{language:'en'},{origin:''})).status,403,'authenticated writes require an exact same-origin header');
@@ -64,6 +64,8 @@ try{
  await call(auth.POST,b,{action:'signup',email:'two@example.test',password:pass});await call(auth.POST,b,{action:'verify',email:'two@example.test',code:'123456'});
  assert.deepEqual((await json(trades.GET,b)).data.trades,[],'other accounts cannot read trades');
  assert.equal((await call(trades.POST,b,{...t,notes:'overwrite'})).status,403,'other accounts cannot overwrite trades');
+ for(let i=2;i<=8;i++)assert.equal((await call(profiles.POST,a,{action:'create',name:`account ${i}`})).status,200,`account ${i} should fit within the eight-account limit`);
+ assert.equal((await call(profiles.POST,a,{action:'create',name:'account 9'})).status,400,'the ninth trading account must be rejected');
  const legacy={'oai-authenticated-user-id':'legacy-owner','oai-authenticated-user-email':'legacy@example.test'};
  assert.equal((await call(link.POST,b,{},{})).status,401,'link requires both authenticated accounts');
  assert.equal((await call(link.POST,a,{},legacy)).status,409,'nonempty email space cannot be silently merged');

@@ -35,7 +35,7 @@ export function TotalPnl({ trades, currency, baseCurrency = 'auto', favoriteIds,
 export function TotalTradeCount({ trades, onAll, favoriteIds, onToggleFavorite }: { trades: Trade[]; onAll: () => void } & FavoriteProps) {
   const { t: tx } = useI18n();
   const rows = ([
-    ['futures', tx('美國期貨')], ['crypto', tx('加密貨幣')], ['us-stocks', tx('美股現貨')], ['tw-stocks', tx('台股')], ['cn-stocks', tx('A股')], ['hk-stocks', tx('港股')], ['all', tx('全部')],
+    ['futures', tx('美股期貨')], ['tw-index-futures', tx('台指期')], ['crypto', tx('加密貨幣')], ['us-stocks', tx('美股現貨')], ['tw-stocks', tx('台股')], ['cn-stocks', tx('A股')], ['hk-stocks', tx('港股')], ['all', tx('全部')],
   ] as const).map(([market, label]) => ({ market, label, count: market === 'all' ? trades.length : trades.filter(trade => trade.market === market).length })).filter(row => row.count > 0);
   return <article id={favoriteFeatureDomId('overview:trade-count')} className="metric total-trade-count-card">
     <div className="metric-label favorite-metric-label"><MetricFavorite id="overview:trade-count" title={tx('總交易筆數')} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} /><span>{tx('總交易筆數 ')}</span><BookOpen className="metric-heading-icon" size={18} /></div>
@@ -79,7 +79,7 @@ export default function DashboardOverview({ trades, currency, baseCurrency = 'au
         <div className="metric-label favorite-metric-label"><MetricFavorite id="overview:period-count" title={tx('交易筆數')} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} /><span>{tx(periodCaption)}{tx('交易筆數 ')}</span><BookOpen className="metric-heading-icon" size={18} /></div>
         <button type="button" className="metric-count-body" onClick={onMonth}>
           <div className="currency-stat total-breakdown"><span>{tx('總筆數')}</span><strong>{trades.length}<em>{tx('筆')}</em></strong></div>
-          {([['futures', tx('美國期貨')], ['crypto', tx('加密貨幣')], ['us-stocks', tx('美股現貨')], ['tw-stocks', tx('台股')], ['cn-stocks', tx('A股')], ['hk-stocks', tx('港股')]] as const).map(([market, label]) => <div className="metric-breakdown" key={market}><span>{label}</span><b>{trades.filter(trade => trade.market === market).length} {tx(' 筆')}</b></div>)}
+          {([['futures', tx('美股期貨')], ['tw-index-futures', tx('台指期')], ['crypto', tx('加密貨幣')], ['us-stocks', tx('美股現貨')], ['tw-stocks', tx('台股')], ['cn-stocks', tx('A股')], ['hk-stocks', tx('港股')]] as const).map(([market, label]) => <div className="metric-breakdown" key={market}><span>{label}</span><b>{trades.filter(trade => trade.market === market).length} {tx(' 筆')}</b></div>)}
           <p className="metric-meta">{tx('點選查看所選期間交易')}</p>
         </button>
       </article>

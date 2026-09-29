@@ -60,7 +60,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   const apiDateValid = !!apiStart && !!apiEnd && apiStart <= apiEnd && apiEnd <= dateInput(new Date());
 
   function offsetForMarket(value: Trade['market']) {
-    return value === 'crypto' ? '0' : value === 'tw-stocks' || value === 'hk-stocks' || value === 'cn-stocks' ? '8' : '-5';
+    return value === 'crypto' ? '0' : value === 'tw-stocks' || value === 'tw-index-futures' || value === 'hk-stocks' || value === 'cn-stocks' ? '8' : '-5';
   }
 
   function selectGuide(next: typeof brokerGuides[number]) {

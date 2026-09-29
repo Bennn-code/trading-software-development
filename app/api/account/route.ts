@@ -7,7 +7,6 @@ import { db, bucket, json, failure, ApiError, readJson } from '@/lib/server';
 import { sameOrigin } from '@/lib/account-validation';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
 import { ensureProfiles } from '@/lib/profiles';
-import type { Trade } from '@/lib/trades';
 export async function GET(request: Request) {
   try {
     const account = await currentAccount(request);
@@ -15,11 +14,8 @@ export async function GET(request: Request) {
       account?.provider==='email'&&!account.linked ? getChatGPTUser() : Promise.resolve(null),
       account ? ensureProfiles(account.userId) : Promise.resolve({profiles:[],activeProfileId:null,preferences:null}),
     ]);
-    const tradeRows = account && spaces.activeProfileId
-      ? await db().prepare('SELECT payload FROM trades WHERE user_id = ? AND profile_id = ? ORDER BY exit_time DESC').bind(account.userId,spaces.activeProfileId).all<{payload:string}>()
-      : {results: [] as {payload:string}[]};
     const preference=spaces.preferences;
-    return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null,preferences:preference?{...preference,activeProfileId:spaces.activeProfileId}:null,profiles:spaces.profiles,activeProfileId:spaces.activeProfileId,trades:tradeRows.results.map(row=>JSON.parse(row.payload) as Trade), canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
+    return json({ account, emailEnabled: emailAuthConfigured(), language: preference?.language ?? null,preferences:preference?{...preference,activeProfileId:spaces.activeProfileId}:null,profiles:spaces.profiles,activeProfileId:spaces.activeProfileId, canLink: !!legacy && account?.provider === 'email' && !account.linked, turnstileSiteKey:env.TURNSTILE_SITE_KEY??null, accountDeletionReady:account?.provider!=='email'||!!env.SUPABASE_SERVICE_ROLE_KEY });
   } catch (e) { return failure(e); }
 }
 

@@ -1,6 +1,6 @@
 import { pnl,stats,type Trade } from './trades';
 export type CurrencyFilter='all'|Trade['currency'];
-export const currencyForMarket=(market:string):CurrencyFilter=>market==='futures'||market==='us-stocks'?'USD':market==='crypto'?'USDT':market==='tw-stocks'?'TWD':market==='cn-stocks'?'CNY':market==='hk-stocks'?'HKD':'all';
+export const currencyForMarket=(market:string):CurrencyFilter=>market==='futures'||market==='us-stocks'?'USD':market==='tw-index-futures'||market==='tw-stocks'?'TWD':market==='crypto'?'USDT':market==='cn-stocks'?'CNY':market==='hk-stocks'?'HKD':'all';
 export function selectMarket(trades:Trade[],market:string,currency:string){return trades.filter(t=>(market==='all'||t.market===market)&&(currency==='all'||t.currency===currency));}
 export function recordsForScope(trades:Trade[],{month,scope='month',start='',end='',day='',query=''}:{month:string;scope?:'month'|'all'|'range';start?:string;end?:string;day?:string;query?:string}){
  return trades.filter(t=>(scope==='all'||(scope==='range'?t.exitTime.slice(0,10)>=start&&t.exitTime.slice(0,10)<=end:t.exitTime.startsWith(month)))&&(!day||t.exitTime.startsWith(day))&&[t.symbol,t.strategy,t.account].join(' ').toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.exitTime.localeCompare(a.exitTime));

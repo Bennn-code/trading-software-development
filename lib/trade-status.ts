@@ -1,4 +1,4 @@
-import { pnl,type Trade } from './trades';
+import { isFuturesMarket, pnl,type Trade } from './trades';
 
 export function bestDayShare(bestNet:number,dailyNetValues:number[]){
  const positiveDailyNet=dailyNetValues.reduce((sum,value)=>sum+Math.max(value,0),0);
@@ -41,7 +41,7 @@ export function averageLoss(trades:Trade[]){const losses=trades.map(pnl).filter(
 export function averagePnl(trades:Trade[]){return trades.length?trades.reduce((sum,trade)=>sum+pnl(trade),0)/trades.length:0;}
 export function averageReturnPercent(trades:Trade[]){
  const returns=trades.flatMap(trade=>{
-  const notional=trade.positionValue??trade.entry*trade.quantity*(trade.market==='futures'?trade.multiplier:1);
+  const notional=trade.positionValue??trade.entry*trade.quantity*(isFuturesMarket(trade.market)?trade.multiplier:1);
   if(!Number.isFinite(notional)||notional<=0)return[];
   const value=pnl(trade)/notional*100;
   return Number.isFinite(value)?[value]:[];

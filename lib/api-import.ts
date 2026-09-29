@@ -148,7 +148,7 @@ export const apiImportGuides: ApiImportGuide[] = [
     notes: ['此表單項目專供香港地區 IBKR 使用；Flex Web Service 是唯讀報表介面，不是下單 API。'],
   },
   {
-    id: 'sinopac-shioaji', name: '永豐金證券 Shioaji', category: '證券', market: 'tw-stocks', markets: ['tw-stocks', 'futures'], region: 'tw', keywords: ['永豐證券', '永豐金證券', 'SinoPac', 'Shioaji', '大戶投'], safetyMode: 'site-query-only',
+    id: 'sinopac-shioaji', name: '永豐金證券 Shioaji', category: '證券', market: 'tw-stocks', markets: ['tw-stocks', 'tw-index-futures'], region: 'tw', keywords: ['永豐證券', '永豐金證券', 'SinoPac', 'Shioaji', '大戶投'], safetyMode: 'site-query-only',
     source: 'https://sinotrade.github.io/tutor/accounting/profit_loss/', credentialType: '本機交易終端／OpenD', readPermission: 'Shioaji 同一 API 也有下單、改單與取消功能。本站未啟用連線；規劃接頭只允許 list_profit_loss 與 list_profit_loss_detail 固定查詢，絕不呼叫交易方法。API Key／憑證本身仍須保護。',
     steps: ['向永豐開通 Shioaji API，並在自己的電腦安裝 Shioaji。', '使用官方已實現損益查詢，指定開始／結束日期；股票與期貨查詢資料欄位不同。', '匯入前核對成交配對、費用及證交稅；官方資料包含已實現損益明細。'],
     notes: ['官方 API 可查指定區間損益，期貨明細含交易稅及手續費；股票明細欄位則不同。本網站尚無本機 Shioaji 連接器，也不接受 API 金鑰。'],

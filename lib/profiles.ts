@@ -36,4 +36,8 @@ export async function ensureProfiles(userId:string){
  const preferences:ProfilePreferences|null=row.language===null?null:{language:row.language,showDemoData:!!row.show_demo_data,timezone:row.timezone??'Asia/Taipei',baseCurrency:row.base_currency??'auto',pnlColor:row.pnl_color??'green_gain'};
  return {activeProfileId:active,profiles:rows.results.map(profile=>({id:profile.id,name:profile.name,isMain:!!profile.is_main,createdAt:profile.created_at,tradeCount:profile.trade_count})) as TradingProfile[],preferences};
 }
-export async function activeProfile(userId:string){const {activeProfileId}=await ensureProfiles(userId);if(!activeProfileId)throw new ApiError('找不到交易子帳號',409);return activeProfileId;}
+export async function activeProfile(userId:string){
+ const active=await db().prepare('SELECT p.id FROM trading_profiles p JOIN account_preferences ap ON ap.user_id=p.user_id AND ap.active_profile_id=p.id WHERE p.user_id=? LIMIT 1').bind(userId).first<{id:string}>();
+ if(active)return active.id;
+ const {activeProfileId}=await ensureProfiles(userId);if(!activeProfileId)throw new ApiError('找不到交易子帳號',409);return activeProfileId;
+}
