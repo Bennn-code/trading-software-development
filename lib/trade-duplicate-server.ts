@@ -1,10 +1,11 @@
 import { db,ApiError } from './server';
 import { findTradeMatches,tradeMatchKey,type TradeDuplicate } from './trade-duplicates';
 import type { Trade } from './trades';
+import { activeProfile } from './profiles';
 const lifetime=30*60*1000;
 async function digest(value:string){const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');}
-export async function checkTradeDuplicates(owner:string,trades:Trade[]):Promise<TradeDuplicate[]>{
- const database=db(),existing=await database.prepare('SELECT payload FROM trades WHERE user_id=?').bind(owner).all<{payload:string}>();
+export async function checkTradeDuplicates(owner:string,trades:Trade[],requestedProfileId?:string):Promise<TradeDuplicate[]>{
+ const profileId=requestedProfileId??await activeProfile(owner),database=db(),existing=await database.prepare('SELECT payload FROM trades WHERE user_id=? AND profile_id=?').bind(owner,profileId).all<{payload:string}>();
  const matches=findTradeMatches(trades,existing.results.map(row=>JSON.parse(row.payload) as Trade));
  const result:TradeDuplicate[]=[];
  for(const match of matches){
@@ -17,8 +18,8 @@ export async function checkTradeDuplicates(owner:string,trades:Trade[]):Promise<
  }
  return result;
 }
-export async function confirmTradeDuplicate(owner:string,trades:Trade[],tradeId:string,step:number,fingerprint:string){
- const duplicates=await checkTradeDuplicates(owner,trades),match=duplicates.find(d=>d.tradeId===tradeId);
+export async function confirmTradeDuplicate(owner:string,trades:Trade[],tradeId:string,step:number,fingerprint:string,profileId?:string){
+ const duplicates=await checkTradeDuplicates(owner,trades,profileId),match=duplicates.find(d=>d.tradeId===tradeId);
  if(!match||match.fingerprint!==fingerprint)throw new ApiError('交易或比對結果已變更，請重新檢查並確認。',409);
  if(step!==match.step+1||![1,2].includes(step))throw new ApiError('請依序完成兩次確認。',409);
  const changed=await db().prepare('UPDATE import_duplicate_approvals SET step=?,expires_at=? WHERE user_id=? AND trade_id=? AND fingerprint=? AND step=? AND expires_at>?').bind(step,Date.now()+lifetime,owner,tradeId,fingerprint,step-1,Date.now()).run();

@@ -41,3 +41,10 @@ export async function activeProfile(userId:string){
  if(active)return active.id;
  const {activeProfileId}=await ensureProfiles(userId);if(!activeProfileId)throw new ApiError('找不到交易子帳號',409);return activeProfileId;
 }
+
+export async function writableProfile(userId:string,requestedId?:string){
+ if(!requestedId)return activeProfile(userId);
+ const profile=await db().prepare('SELECT id FROM trading_profiles WHERE id=? AND user_id=?').bind(requestedId,userId).first<{id:string}>();
+ if(!profile)throw new ApiError('找不到所選交易帳號',404);
+ return profile.id;
+}

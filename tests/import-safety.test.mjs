@@ -1,11 +1,13 @@
 import fs from 'node:fs';import ts from 'typescript';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
 const require=createRequire(new URL('../work/',import.meta.url));
-for(const name of ['trades','screenshot-import','validation']){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
+for(const name of ['trades','display-currency','screenshot-import','validation']){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
 const {normalizeTime,normalizeRow}=require('./screenshot-import.cjs'),{tradeSchema}=require('./validation.cjs'),{pnl}=require('./trades.cjs');
 assert.equal(normalizeTime('2026-08-25 13:47:50',8),'2026-08-25T13:47');
 assert.equal(normalizeTime('2026-08-25T13:47:50',0),'2026-08-25T21:47');
 assert.equal(normalizeTime('2026/8/25 9:47:50',8),'2026-08-25T09:47');
 assert.equal(normalizeTime('2026-02-30 13:47:50',8),'');
+assert.equal(normalizeTime('2026-09-15 09:00:00','America/New_York','Asia/Taipei'),'2026-09-15T21:00','screenshot zones use their local DST offset');
+assert.equal(normalizeTime('2026-02-15 09:00:00','America/New_York','Asia/Taipei'),'2026-02-15T22:00','screenshot zones use the historical winter offset');
 const row={sourceLabel:'PROMUSDT 永續',symbol:'PROMUSDT',market:'futures',side:'long',currency:'USDT',entryTime:'2026-08-25 13:47:50',exitTime:'2026-08-30 09:41:43',entry:4.349,exit:6.208,quantity:null,multiplier:null,commission:null,commissionSource:null,fees:211.072,feeSource:null,funding:null,fundingSource:null,netProfit:63.0751,netProfitIsNet:false,strategy:null,entryFills:[],exitFills:[],completeFillHistory:false,warnings:[]};
 const ctx={id:crypto.randomUUID(),imageId:crypto.randomUUID(),account:'test',offset:8};
 const t=normalizeRow(row,ctx).trade;

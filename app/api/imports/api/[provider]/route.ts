@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ApiError, db, failure, identity, json, readJson } from '@/lib/server';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
+import { writableProfile } from '@/lib/profiles';
 import { readBoundedText, ResponseTooLargeError } from '@/lib/bounded-response';
 import { hmacSha256Base64, hmacSha256Hex, mapBingxPosition, mapBitgetPosition, mapKucoinUtaPosition, mapMexcPosition, mapOkxPosition, preserveLargeJsonPositionIds, type BingxHistoryPosition, type BitgetHistoryPosition, type KucoinUtaHistoryPosition, type MexcHistoryPosition, type OkxHistoryPosition } from '@/lib/exchange-api';
 
@@ -9,6 +10,7 @@ const inputSchema = z.object({
   apiSecret: z.string().trim().min(8).max(256).regex(/^[A-Za-z0-9_+/=-]+$/),
   apiPassphrase: z.string().min(1).max(256).regex(/^[^\r\n\u0000-\u001f\u007f]+$/).optional(),
   apiKeyVersion: z.enum(['2', '3']).optional(),
+  profileId: z.string().uuid().optional(),
   symbol: z.string().trim().max(30).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -140,6 +142,7 @@ export async function POST(request: Request, { params }: Params) {
     const body = await readJson(request, 5000);
     const parsed = inputSchema.safeParse(body);
     if (!parsed.success) throw new ApiError('請填寫有效的 API Key、Secret 和日期。');
+    const profileId = await writableProfile(owner, parsed.data.profileId);
     const { apiKey, apiSecret, apiPassphrase, apiKeyVersion, symbol, startDate, endDate } = parsed.data;
     if (['bitget', 'okx', 'kucoin'].includes(provider) && !apiPassphrase) throw new ApiError('此交易所需要 API Passphrase。');
     const passphrase = apiPassphrase ?? '';
@@ -237,11 +240,12 @@ export async function POST(request: Request, { params }: Params) {
             : provider === 'bingx' ? Number((row as BingxHistoryPosition).updateTime) : Number((row as MexcHistoryPosition).updateTime);
       return time(left) - time(right);
     });
-    const mapped = await Promise.all(ordered.map(row => provider === 'bitget' ? mapBitgetPosition(row as BitgetHistoryPosition, owner, timezone)
-      : provider === 'okx' ? mapOkxPosition(row as OkxHistoryPosition, owner, timezone)
-        : provider === 'kucoin' ? mapKucoinUtaPosition(row as KucoinUtaHistoryPosition, owner, timezone)
-          : provider === 'bingx' ? mapBingxPosition(row as BingxHistoryPosition, owner, timezone)
-            : mapMexcPosition(row as MexcHistoryPosition, owner, timezone)));
+    const profileScope = `${owner}:${profileId}`;
+    const mapped = await Promise.all(ordered.map(row => provider === 'bitget' ? mapBitgetPosition(row as BitgetHistoryPosition, profileScope, timezone)
+      : provider === 'okx' ? mapOkxPosition(row as OkxHistoryPosition, profileScope, timezone)
+        : provider === 'kucoin' ? mapKucoinUtaPosition(row as KucoinUtaHistoryPosition, profileScope, timezone)
+          : provider === 'bingx' ? mapBingxPosition(row as BingxHistoryPosition, profileScope, timezone)
+            : mapMexcPosition(row as MexcHistoryPosition, profileScope, timezone)));
     const trades = mapped.filter((trade): trade is NonNullable<typeof trade> => trade !== null);
     await recordSecurityEvent(request, 'api_trade_imported', owner, { provider, count: trades.length, startDate, endDate });
     const warnings = provider === 'bitget'

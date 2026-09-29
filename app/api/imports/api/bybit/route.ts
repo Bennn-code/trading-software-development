@@ -3,11 +3,13 @@ import { db, identity, json, failure, ApiError, readJson } from '@/lib/server';
 import { enforceRateLimit, recordSecurityEvent } from '@/lib/security';
 import { bybitHmacSha256, mapBybitClosedOption, mapBybitClosedPnl, type BybitClosedOption, type BybitClosedPnl } from '@/lib/bybit-api';
 import { readBoundedText, ResponseTooLargeError } from '@/lib/bounded-response';
+import { writableProfile } from '@/lib/profiles';
 
 const inputSchema = z.object({
   apiKey: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9_-]+$/),
   apiSecret: z.string().trim().min(8).max(256).regex(/^[A-Za-z0-9_-]+$/),
   category: z.enum(['option', 'linear']).default('option'),
+  profileId: z.string().uuid().optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
@@ -74,6 +76,7 @@ export async function POST(request: Request) {
     const body = await readJson(request, 3000);
     const parsed = inputSchema.safeParse(body);
     if (!parsed.success) throw new ApiError('請填寫正確的 Bybit API Key、Secret 和日期。');
+    const profileId = await writableProfile(owner, parsed.data.profileId);
     const { apiKey, apiSecret, category, startDate, endDate } = parsed.data;
     const start = dateMs(startDate), endExclusive = dateMs(endDate) + 86_400_000;
     const now = Date.now(), oldestDate = new Date(now), oldestDay = oldestDate.getUTCDate();
@@ -126,9 +129,10 @@ export async function POST(request: Request) {
     const sortedRows = [...rows.values()].sort((a, b) => category === 'option'
       ? (a as BybitClosedOption).closeTime - (b as BybitClosedOption).closeTime
       : Number((a as BybitClosedPnl).updatedTime) - Number((b as BybitClosedPnl).updatedTime));
+    const profileScope = `${owner}:${profileId}`;
     const trades = (await Promise.all(sortedRows.map(row => category === 'option'
-      ? mapBybitClosedOption(row as BybitClosedOption, owner, timezone)
-      : mapBybitClosedPnl(row as BybitClosedPnl, owner, timezone)))).filter((trade) => trade !== null);
+      ? mapBybitClosedOption(row as BybitClosedOption, profileScope, timezone)
+      : mapBybitClosedPnl(row as BybitClosedPnl, profileScope, timezone)))).filter((trade) => trade !== null);
     await recordSecurityEvent(request, 'api_trade_imported', owner, { provider: category === 'option' ? 'bybit-options' : 'bybit-linear', count: trades.length, startDate, endDate });
     const warnings = category === 'option'
       ? ['目前 Bybit 直連只匯入 USDT 選擇權已平倉紀錄；totalPnl 是交易所回傳的結算損益，手續費只作明細顯示，不會重複扣除。未平倉、現貨及其他合約類型不在此匯入範圍。']

@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { normalizeTime,type ExtractedRow } from './screenshot-import';
 const schema=z.object({trades:z.array(z.object({index:z.number().int(),entryTime:z.string().nullable(),exitTime:z.string().nullable(),evidence:z.string(),certain:z.boolean()}))});
-export async function verifyTimes({rows,key,model,dataUrl,detailImages=[],offset,fetcher=fetch}:{rows:ExtractedRow[];key:string;model:string;dataUrl:string;detailImages?:string[];offset:number;fetcher?:typeof fetch}){
- const indexes=rows.map((row,index)=>({row,index})).filter(({row})=>{const entry=normalizeTime(row.entryTime,offset),exit=normalizeTime(row.exitTime,offset);return !entry||!exit||exit<entry;});
+export async function verifyTimes({rows,key,model,dataUrl,detailImages=[],offset,sourceTimezone,targetTimezone='Asia/Taipei',fetcher=fetch}:{rows:ExtractedRow[];key:string;model:string;dataUrl:string;detailImages?:string[];offset?:number;sourceTimezone?:string;targetTimezone?:string;fetcher?:typeof fetch}){
+ const timezone=sourceTimezone??offset??8;
+ const indexes=rows.map((row,index)=>({row,index})).filter(({row})=>{const entry=normalizeTime(row.entryTime,timezone,targetTimezone),exit=normalizeTime(row.exitTime,timezone,targetTimezone);return !entry||!exit||exit<entry;});
  if(!indexes.length)return rows;
  const properties={index:{type:'integer'},entryTime:{type:['string','null']},exitTime:{type:['string','null']},evidence:{type:'string'},certain:{type:'boolean'}};
  try{
@@ -10,6 +11,6 @@ export async function verifyTimes({rows,key,model,dataUrl,detailImages=[],offset
   if(!response.ok)throw new Error('verification failed');
   const result=await response.json() as {status?:string;output?:{content?:{type:string;text?:string}[]}[]};if(result.status!=='completed')throw new Error('incomplete');
   const parsed=schema.parse(JSON.parse(result.output?.flatMap(x=>x.content??[]).filter(x=>x.type==='output_text').map(x=>x.text??'').join('')||''));
-  return rows.map((row,index)=>{if(!indexes.some(x=>x.index===index))return row;const found=parsed.trades.find(x=>x.index===index),entry=normalizeTime(found?.entryTime??null,offset),exit=normalizeTime(found?.exitTime??null,offset);if(found?.certain&&found.evidence.trim()&&entry&&exit&&exit>=entry)return {...row,entryTime:found.entryTime,exitTime:found.exitTime,warnings:[...row.warnings,`時間已重新辨讀，請核對原圖：${found.evidence}`]};return {...row,warnings:[...row.warnings,'時間重新辨讀後仍不確定，請在清單手動修正進場與出場日期、24 時制時間。']};});
+  return rows.map((row,index)=>{if(!indexes.some(x=>x.index===index))return row;const found=parsed.trades.find(x=>x.index===index),entry=normalizeTime(found?.entryTime??null,timezone,targetTimezone),exit=normalizeTime(found?.exitTime??null,timezone,targetTimezone);if(found?.certain&&found.evidence.trim()&&entry&&exit&&exit>=entry)return {...row,entryTime:found.entryTime,exitTime:found.exitTime,warnings:[...row.warnings,`時間已重新辨讀，請核對原圖：${found.evidence}`]};return {...row,warnings:[...row.warnings,'時間重新辨讀後仍不確定，請在清單手動修正進場與出場日期、24 時制時間。']};});
  }catch{return rows.map((row,index)=>indexes.some(x=>x.index===index)?{...row,warnings:[...row.warnings,'時間複核未完成，請對照原圖手動修正。']}:row);}
 }

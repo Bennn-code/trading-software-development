@@ -70,6 +70,8 @@ assert.equal(await mapMexcPosition({ positionId: 124, symbol: 'BTC_USDT', positi
 
 const route = fs.readFileSync('app/api/imports/api/[provider]/route.ts', 'utf8');
 for (const provider of ['bitget', 'okx', 'kucoin', 'bingx', 'mexc']) assert.ok(route.includes(`'${provider}'`), `missing live provider ${provider}`);
+assert.match(route, /writableProfile\(owner,\s*parsed\.data\.profileId\)/, 'API imports must validate the chosen account belongs to the signed-in user');
+assert.match(route, /const profileScope = `\$\{owner\}:\$\{profileId\}`/, 'API import IDs must be unique per account');
 assert.match(route, /fetch\(url,\s*\{\s*method:\s*'GET'/);
 for (const host of ['https:\/\/api.bitget.com', 'https:\/\/www.okx.com', 'https:\/\/api.kucoin.com', 'https:\/\/open-api.bingx.com', 'https:\/\/contract.mexc.com']) assert.ok(route.includes(host), `missing fixed provider host ${host}`);
 assert.match(route, /redirect:\s*'error'/);

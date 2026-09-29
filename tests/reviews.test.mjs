@@ -3,7 +3,7 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 fs.mkdirSync('work',{recursive:true});
-const names=['trades','validation','screenshot-import','import-review','periods','report-period','reviews','review-ai'];
+const names=['trades','validation','display-currency','screenshot-import','import-review','periods','report-period','reviews','review-ai'];
 for(const name of names){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;for(const dependency of names)code=code.replaceAll(`"./${dependency}"`,`"./${dependency}.cjs"`);fs.writeFileSync(`work/${name}.cjs`,code);}
 const require=createRequire(new URL('../work/',import.meta.url));
 const {newTrade,pnl}=require('./trades.cjs');

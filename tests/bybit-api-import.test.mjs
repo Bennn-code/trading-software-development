@@ -4,11 +4,11 @@ import ts from 'typescript';
 import { createRequire } from 'node:module';
 
 const require = createRequire(new URL('../work/', import.meta.url));
-for (const name of ['trades', 'screenshot-import', 'validation', 'bybit-api']) {
+for (const name of ['trades', 'display-currency', 'screenshot-import', 'validation', 'bybit-api']) {
   let code = ts.transpileModule(fs.readFileSync(`lib/${name}.ts`, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  code = code.replaceAll('"./trades"', '"./trades.cjs"').replaceAll('"./screenshot-import"', '"./screenshot-import.cjs"');
+  code = code.replaceAll('"./trades"', '"./trades.cjs"').replaceAll('"./display-currency"', '"./display-currency.cjs"').replaceAll('"./screenshot-import"', '"./screenshot-import.cjs"');
   fs.writeFileSync(`work/${name}.cjs`, code);
 }
 const { bybitHmacSha256, mapBybitClosedOption, mapBybitClosedPnl } = require('./bybit-api.cjs');
@@ -27,6 +27,11 @@ const source = {
   openTime: Date.parse('2026-09-10T01:00:00.000Z'), avgEntryPrice: '4200.25', totalPnl: '1.25',
 };
 const trade = await mapBybitClosedOption(source, 'test-user', 'Asia/Taipei');
+assert.notEqual(
+  (await mapBybitClosedOption(source, 'test-user:account-one', 'Asia/Taipei')).id,
+  (await mapBybitClosedOption(source, 'test-user:account-two', 'Asia/Taipei')).id,
+  'the same exchange row can be imported independently into separate trading accounts',
+);
 assert.ok(trade);
 assert.equal(trade.side, 'long');
 assert.equal(trade.entryTime, '2026-09-10T09:00');

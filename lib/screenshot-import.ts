@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isFuturesMarket, marketCurrencies, multipliers, multiplierForSymbol, type Trade } from './trades';
+import { convertWallTime } from './display-currency';
 const number=z.number().finite().nullable();
 const text=z.string().max(300).nullable();
 const fill=z.object({price:z.number().finite().positive(),quantity:z.number().finite().positive()});
@@ -22,15 +23,19 @@ const properties={
 };
 export const extractionJsonSchema={type:'object',properties:{trades:{type:'array',items:{type:'object',properties,required:Object.keys(properties),additionalProperties:false}},warnings:{type:'array',items:{type:'string'}}},required:['trades','warnings'],additionalProperties:false};
 export function weightedPrice(fills:{price:number;quantity:number}[]){const qty=fills.reduce((s,f)=>s+f.quantity,0);return qty>0?fills.reduce((s,f)=>s+f.price*f.quantity,0)/qty:null;}
-export function normalizeTime(value:string|null,offset:number){
+export function normalizeTime(value:string|null,sourceTimezone:number|string,targetTimezone='Asia/Taipei'){
  if(!value)return '';
  const match=value.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
  if(!match)return '';
  const [,y,m,d,h,min,sec='00']=match,canonical=y+'-'+m.padStart(2,'0')+'-'+d.padStart(2,'0')+'T'+h.padStart(2,'0')+':'+min+':'+sec;
  const stamp=Date.parse(canonical+'Z');if(!Number.isFinite(stamp)||new Date(stamp).toISOString().slice(0,19)!==canonical)return '';
- return new Date(stamp+(8-offset)*3600000).toISOString().slice(0,16);
+ if(typeof sourceTimezone==='number'){
+  const instant=new Date(stamp-sourceTimezone*3600000);
+  try{return new Intl.DateTimeFormat('sv-SE',{timeZone:targetTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant).replace(' ','T');}catch{return '';}
+ }
+ try{return convertWallTime(canonical,sourceTimezone,targetTimezone);}catch{return '';}
 }
-export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;account:string;offset:number}):ImportCandidate{
+export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;account:string;offset?:number;sourceTimezone?:string;targetTimezone?:string}):ImportCandidate{
  row={...row};
  for(const [field,source,label] of [['commission','commissionSource',/commission|brokerage|佣金|傭金|手續費|手续费/i],['transactionTax','transactionTaxSource',/證券交易稅|证券交易税|證交稅|证交税|交易稅|交易税/i],['fees','feeSource',/fee|其他費用|其他费用|交易費|交易费|平台費|平台费|監管費|监管费|結算費|结算费|返佣/i],['funding','fundingSource',/funding|資金費|资金费/i]] as const){if(source in row&&!label.test(row[source]??'')){row[field]=null;row[source]=null;}}
  const warnings=[...row.warnings];
@@ -53,7 +58,8 @@ export function normalizeRow(row:ExtractedRow,context:{id:string;imageId:string;
  const multiplier=isFuturesMarket(market)?row.multiplier??multiplierForSymbol(symbol,market==='tw-index-futures'?200:0):1;
  if(row.market==='crypto'&&row.multiplier!==null&&row.multiplier!==1)warnings.push('此商品的合約乘數不是 1；請改用帳單淨損益，並確認金額與幣別。');
 
- const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market,side:row.side??'long',currency:market==='tw-index-futures'?marketCurrencies[market]:row.currency??marketCurrencies[market],entryTime:normalizeTime(row.entryTime,context.offset),exitTime:normalizeTime(row.exitTime,context.offset),entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,positionValue:row.positionValue??null,commission:row.commission==null?null:Math.abs(row.commission),transactionTax:row.transactionTax==null?null:Math.abs(row.transactionTax),fees:row.fees==null?null:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees),feeMode:row.feeMode??'paid',funding:row.funding??null,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
+ const sourceTimezone=context.sourceTimezone??context.offset??8,targetTimezone=context.targetTimezone??'Asia/Taipei';
+ const trade:Trade={id:context.id,imageId:context.imageId,account:context.account,symbol,market,side:row.side??'long',currency:market==='tw-index-futures'?marketCurrencies[market]:row.currency??marketCurrencies[market],entryTime:normalizeTime(row.entryTime,sourceTimezone,targetTimezone),exitTime:normalizeTime(row.exitTime,sourceTimezone,targetTimezone),timezone:targetTimezone,entry:entry??0,exit:exit??0,quantity:quantity??0,multiplier,positionValue:row.positionValue??null,commission:row.commission==null?null:Math.abs(row.commission),transactionTax:row.transactionTax==null?null:Math.abs(row.transactionTax),fees:row.fees==null?null:(row.feeMode==='rebate'?-1:1)*Math.abs(row.fees),feeMode:row.feeMode??'paid',funding:row.funding??null,strategy:row.strategy??'',notes:'',netOverride:row.netProfit,profitBasis:row.netProfitIsNet?'net':'gross'};
  return {trade,costSources:[row.commissionSource,row.transactionTaxSource,row.feeSource,row.fundingSource].filter((s):s is string=>!!s),warnings:[...new Set(warnings)],sourceLabel:row.sourceLabel,entryBasis:row.entry!==null?'由截圖直接辨識':entry!==null?'由完整成交明細加權計算':'未能辨識，請補填',exitBasis:row.exit!==null?'由截圖直接辨識':exit!==null?'由完整成交明細加權計算':'未能辨識，請補填',selected:true,confirmed:false};
 }
 export async function stableImportId(owner:string,digest:string,index:number){const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${owner}:${digest}:${index}`));const hex=Array.from(new Uint8Array(bytes)).map(b=>b.toString(16).padStart(2,'0')).join('');return `${hex.slice(0,8)}-${hex.slice(8,12)}-5${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;}

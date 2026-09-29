@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { feeCost, grossPnl, initialMargin, isFuturesMarket, marketCurrencies, multiplierForSymbol, parseSignedAmount, pnl, positionValue, type Trade } from '@/lib/trades';
+import { timezoneName, utcOffsetLabel } from '@/lib/preferences';
 
 export function Choice({label,value,options,onChange}:{label:string;value:string;options:[string,string][];onChange:(s:string)=>void}) {
  return <div className="form-field"><label>{label}</label><Select value={value} onValueChange={onChange}><SelectTrigger aria-label={label}><SelectValue/></SelectTrigger><SelectContent>{options.map(([v,l])=><SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent></Select></div>;
@@ -40,6 +41,7 @@ export default function TradeFields({trade:t,onChange,notes=true}:{trade:Trade;o
  const {t:tx}=useI18n();
  const uid=useId(),[profitText,setProfitText]=useState(t.netOverride===null?'':String(t.netOverride)),[fundingDirection,setFundingDirection]=useState((t.funding??0)<0?'received':'paid');
  const set=<K extends keyof Trade>(key:K,value:Trade[K])=>onChange({...t,[key]:value});
+ const tradeTimezone=t.timezone??'Asia/Taipei',timezoneLabel=`${tx(timezoneName(tradeTimezone))} · ${utcOffsetLabel(tradeTimezone,new Date(`${t.entryTime.slice(0,10)}T12:00:00Z`))}`;
  function numeric(key:NumberField,value:number|null) {
   const isCost=!['entry','exit','quantity','multiplier'].includes(key);
   const next={...t,[key]:isCost?(value===null?null:Math.abs(value)):value??0};
@@ -69,7 +71,7 @@ export default function TradeFields({trade:t,onChange,notes=true}:{trade:Trade;o
   <Choice label={tx('交易方向')} value={t.side} options={[["long",tx('做多 Long')],["short",tx('做空 Short')]]} onChange={v=>set('side',v as Trade['side'])}/>
   <Choice label={tx('計價幣別')} value={t.currency} options={[["USD",tx('USD 美元')],["USDT","USDT"],["TWD",tx('TWD 新台幣')],["CNY",tx('CNY 人民幣')],["HKD",tx('HKD 港幣')]]} onChange={v=>set('currency',v as Trade['currency'])}/>
   <div className="form-field wide"><label htmlFor={`${uid}-account`}>{tx('帳戶名稱')}</label><Input id={`${uid}-account`} required maxLength={80} value={t.account} onChange={e=>set('account',e.target.value)} placeholder={tx('例如：Binance 主帳戶')}/></div>
-  {(['entryTime','exitTime'] as const).map((key,i)=><div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{i?tx('出場時間'):tx('進場時間')}{tx('（台北）')}</label><DateTime24 id={`${uid}-${key}`} label={i?tx('出場'):tx('進場')} value={t[key]} onChange={value=>set(key,value)}/></div>)}
+  {(['entryTime','exitTime'] as const).map((key,i)=><div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{tx(i?'出場時間（{0}）':'進場時間（{0}）',[timezoneLabel])}</label><DateTime24 id={`${uid}-${key}`} label={i?tx('出場'):tx('進場')} value={t[key]} onChange={value=>set(key,value)}/></div>)}
   {numberField('entry',tx('平均進場價'))}{numberField('exit',tx('平均出場價'))}
   {isFuturesMarket(t.market)?<>{numberField('quantity',tx('口數'))}{numberField('multiplier',tx('每點乘數'))}</>:t.market==='crypto'?<>
    <div className="form-field wide"><label htmlFor={`${uid}-value`}>{tx('進場倉位金額（')}{t.currency}）</label><Input id={`${uid}-value`} required type="number" min="0" step="any" value={positionValue(t)||''} placeholder={tx('例如：1,000')} onChange={e=>{const value=e.target.value===''?null:Number(e.target.value);onChange({...t,positionValue:value,quantity:value!=null&&t.entry>0?value/t.entry:0,multiplier:1});}}/></div>

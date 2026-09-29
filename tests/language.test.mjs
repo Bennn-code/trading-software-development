@@ -32,12 +32,21 @@ const [englishTranslator, simplifiedTranslator, cantoneseTranslator] = await Pro
   loadTranslator('zh-Hans'),
   loadTranslator('yue-Hant'),
 ]);
+const { timezoneOptions } = loadTypeScriptModule('lib/preferences.ts');
 
 assert.equal(englishTranslator('交易總覽'), 'Overview');
 assert.equal(simplifiedTranslator('交易總覽'), '交易总览');
 assert.equal(traditional('我的交易空間'), '我的交易空間');
 assert.equal(cantoneseTranslator('我的交易空間'), '我嘅交易空間');
 assert.equal(cantoneseTranslator('請核對第 {0} 筆交易並勾選「已核對」', [2]), '請核對第 2 筆交易並剔選「已核對」');
+assert.equal(englishTranslator('儲存至交易帳號'), 'Save to trading account');
+assert.equal(cantoneseTranslator('儲存至交易帳號'), '儲存到交易帳號');
+assert.equal(englishTranslator('確認刪除'), 'Confirm delete');
+assert.equal(cantoneseTranslator('確認刪除'), '確認刪除');
+for (const [, place] of timezoneOptions) {
+  assert.ok(english[place], `English timezone name: ${place}`);
+  assert.ok(cantonese[place], `Cantonese timezone name: ${place}`);
+}
 assert.equal(englishTranslator('2026/9月第一週'), '2026/9 · Week 1');
 assert.equal(englishTranslator('2026年第三季'), '2026 Q3');
 assert.equal(englishTranslator('2026年'), '2026');

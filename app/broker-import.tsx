@@ -12,6 +12,7 @@ import { tradeSchema, tradeIssueMessage } from '@/lib/validation';
 import type { TradeDuplicate } from '@/lib/trade-duplicates';
 import { marketNames, type Trade } from '@/lib/trades';
 import { useI18n } from './language-provider';
+import TradingAccountSelect, { type TradingAccountOption } from './trading-account-select';
 
 const offsets = [['0', 'UTC'], ['8', '台北 UTC+8'], ['-4', '美東夏令 UTC-4'], ['-5', '美東冬令／美中夏令 UTC-5'], ['-6', '美中冬令 UTC-6']] as const;
 type ImportMethod = 'file' | 'api';
@@ -21,7 +22,7 @@ function dateInput(date: Date) {
   return local.toISOString().slice(0, 10);
 }
 
-export default function BrokerImport({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (rows: Trade[], saved: number, skipped: number) => void }) {
+export default function BrokerImport({ open, onClose, onSaved, accounts = [], activeProfileId = null }: { open: boolean; onClose: () => void; onSaved: (rows: Trade[], saved: number, skipped: number, profileId?: string) => void; accounts?: TradingAccountOption[]; activeProfileId?: string | null }) {
   const { t: tx } = useI18n();
   const [method, setMethod] = useState<ImportMethod>('file');
   const [provider, setProvider] = useState('');
@@ -29,6 +30,8 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   const [help, setHelp] = useState(true);
   const [search, setSearch] = useState('');
   const [region, setRegion] = useState<BrokerRegionFilter>('all');
+  const [profileOverride, setProfileOverride] = useState<string | null>(null);
+  const targetProfileId = profileOverride ?? activeProfileId ?? '';
   const [rows, setRows] = useState<ParsedBrokerTrade[]>([]);
   const [active, setActive] = useState(0);
   const [offset, setOffset] = useState('0');
@@ -143,7 +146,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     const timer = setTimeout(async () => {
       try {
         const trades = JSON.parse(checkKey) as Trade[];
-        const response = await fetch('/api/imports/check-trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trades }), signal: controller.signal });
+        const response = await fetch('/api/imports/check-trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trades, profileId: targetProfileId }), signal: controller.signal });
         const data = await response.json() as { duplicates: TradeDuplicate[]; error?: string };
         if (!response.ok) throw new Error(data.error || '無法檢查重複交易');
         const map = Object.fromEntries(data.duplicates.map(item => [item.tradeId, item]));
@@ -154,7 +157,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
       }
     }, 350);
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [open, method, checkKey]);
+  }, [open, method, checkKey, targetProfileId]);
 
   async function chooseFile(file?: File) {
     if (!file || !guide) return;
@@ -183,6 +186,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   }
 
   async function importApiTrades() {
+    if (!targetProfileId) { setError(tx('請先選擇交易帳號')); return; }
     if (!apiGuide?.liveConnector || !apiKey.trim() || !apiSecret.trim() || (apiRequiresPassphrase && !apiPassphrase.trim()) || (apiRequiresSymbol && !apiSymbol.trim()) || !apiDateValid) return;
     const submittedKey = apiKey.trim(), submittedSecret = apiSecret.trim(), submittedPassphrase = apiPassphrase;
     setBusy('正在安全讀取交易所資料…');
@@ -191,7 +195,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
       const response = await fetch(`/api/imports/api/${apiProvider}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: submittedKey, apiSecret: submittedSecret, ...(apiGuide.liveConnector === 'bybit-closed-pnl' ? { category: apiBybitCategory } : {}), ...(apiRequiresPassphrase ? { apiPassphrase: submittedPassphrase } : {}), ...(apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? { apiKeyVersion } : {}), ...(apiShowsSymbol && apiSymbol.trim() ? { symbol: apiSymbol.trim().toUpperCase() } : {}), startDate: apiStart, endDate: apiEnd }),
+        body: JSON.stringify({ apiKey: submittedKey, apiSecret: submittedSecret, profileId: targetProfileId, ...(apiGuide.liveConnector === 'bybit-closed-pnl' ? { category: apiBybitCategory } : {}), ...(apiRequiresPassphrase ? { apiPassphrase: submittedPassphrase } : {}), ...(apiGuide.liveConnector === 'kucoin-uta-usdt-futures' ? { apiKeyVersion } : {}), ...(apiShowsSymbol && apiSymbol.trim() ? { symbol: apiSymbol.trim().toUpperCase() } : {}), startDate: apiStart, endDate: apiEnd }),
       });
       const data = await response.json() as { trades?: Trade[]; warnings?: string[]; error?: string };
       if (!response.ok) throw new Error(data.error || 'API 查詢失敗，請確認唯讀金鑰和日期。');
@@ -219,7 +223,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     if (!duplicate) return;
     setBusy('正在確認重複交易…');
     try {
-      const response = await fetch('/api/imports/check-trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trades: eligible, confirm: { tradeId: id, step: duplicate.step + 1, fingerprint: duplicate.fingerprint } }) });
+      const response = await fetch('/api/imports/check-trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trades: eligible, profileId: targetProfileId, confirm: { tradeId: id, step: duplicate.step + 1, fingerprint: duplicate.fingerprint } }) });
       const data = await response.json() as { duplicate: TradeDuplicate; error?: string };
       if (!response.ok) throw new Error(data.error || '確認失敗');
       setDuplicates(current => ({ ...current, [id]: data.duplicate }));
@@ -232,6 +236,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
   }
 
   async function save() {
+    if (!targetProfileId) { setError(tx('請先選擇交易帳號')); return; }
     const selected = rows.filter(row => row.selected);
     if (!selected.length) { setError('請至少勾選一筆交易'); return; }
     const trades: Trade[] = [];
@@ -252,7 +257,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
     setBusy(`正在儲存 ${trades.length} 筆交易…`);
     setError('');
     try {
-      const response = await fetch('/api/trades/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trades }) });
+      const response = await fetch('/api/trades/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trades, profileId: targetProfileId }) });
       const data = await response.json() as { saved: number; skipped: number; tradeDuplicates?: TradeDuplicate[]; error?: string };
       if (response.status === 409 && data.tradeDuplicates) {
         const map = Object.fromEntries(data.tradeDuplicates.map(item => [item.tradeId, item]));
@@ -261,7 +266,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
         throw new Error('重複交易已標紅並取消勾選；請略過或完成兩次確認。');
       }
       if (!response.ok) throw new Error(data.error || '儲存失敗');
-      onSaved(trades, data.saved, data.skipped);
+      onSaved(trades, data.saved, data.skipped, targetProfileId);
       close();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '儲存失敗');
@@ -280,6 +285,7 @@ export default function BrokerImport({ open, onClose, onSaved }: { open: boolean
         <DialogTitle>{tx('交易所匯入')}</DialogTitle>
         <DialogDescription>{method === 'file' ? tx('只讀取你選擇的 CSV／Excel；先預覽核對，再寫入交易紀錄。') : tx('API 與檔案匯入分開顯示；Bybit、Bitget、OKX、KuCoin、BingX 和 MEXC 提供網站唯讀連線，其他來源仍是支援指南。本站沒有下單、轉帳或提款功能。')}</DialogDescription>
       </DialogHeader>
+      <TradingAccountSelect accounts={accounts} value={targetProfileId} onChange={setProfileOverride} disabled={!!busy||!!rows.length}/>
 
       {!rows.length ? <>
         <div className="broker-import-start">

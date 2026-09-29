@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 fs.mkdirSync('work',{recursive:true});
 const require=createRequire(new URL('../work/',import.meta.url));
-for(const name of ['trades','validation','screenshot-import','vision','trade-duplicates','periods','report-period','reviews']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./periods"','"./periods.cjs"').replaceAll('"./report-period"','"./report-period.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
+for(const name of ['trades','validation','display-currency','screenshot-import','vision','trade-duplicates','periods','report-period','reviews']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./periods"','"./periods.cjs"').replaceAll('"./report-period"','"./report-period.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
 const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade,marketCurrencies,multiplierForSymbol}=require('./trades.cjs');
 const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
