@@ -1295,5 +1295,15 @@
   "新增的交易會保存到這個帳號。": "New trades will be saved to this account.",
   "進場時間（{0}）": "Entry time ({0})",
   "請先選擇交易帳號": "Select a trading account first",
-  "儲存至交易帳號": "Save to trading account"
+  "儲存至交易帳號": "Save to trading account",
+  "目前清單使用截圖辨識時選擇的來源時區。": "The list uses the source time zone selected for screenshot recognition.",
+  "紅框標示的重複交易：如要匯入，請勾選該筆；最後在儲存視窗完成一次整批確認。": "Duplicate trades are outlined in red. Select a trade to include it, then confirm the batch once in the save dialog.",
+  "確認儲存交易？": "Confirm trade import?",
+  "確定將 {0} 筆交易儲存至「{1}」？": "Save {0} trades to “{1}”?",
+  "其中 {0} 筆有紅框重複提醒，儲存後仍會再次計入損益與交易筆數。": "{0} trades are marked as duplicates. Saving them will count them again in P&L and trade totals.",
+  "返回清單": "Back to list",
+  "確認儲存": "Confirm save",
+  "全選已辨識交易": "Select all recognized trades",
+  "已選取 {0} / {1} 筆": "Selected {0} of {1} trades",
+  "伺服器再次檢查發現重複交易，已用紅框標示。請核對後重新按儲存並完成一次整批確認。": "The server found new duplicate trades and marked them in red. Review them, then save and confirm the batch once."
 }
