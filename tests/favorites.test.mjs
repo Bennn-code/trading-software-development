@@ -41,7 +41,7 @@ assert.equal((dashboard.match(/favorite-star-button active/g) || []).length, ana
 
 const focusedDashboard = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><DashboardOverview trades={sampleTrades} currency="all" baseCurrency="auto" periodCaption="This month" onTrade={() => {}} onMonth={() => {}} onDay={() => {}} onCalendar={() => {}} favoriteIds={['overview:profit-factor']} onToggleFavorite={() => {}} favoriteOnly /></LanguageProvider>);
 assert.ok(focusedDashboard.includes('Profit factor'), 'favorite-only analysis displays the selected card content');
-assert.match(focusedDashboard, /trade-overview-favorite-overview%3Awin-rate"[^>]*hidden/, 'unselected analysis cards are hidden');
+assert.doesNotMatch(focusedDashboard, /trade-overview-favorite-overview%3Awin-rate/, 'unselected analysis cards are omitted from the favorites view');
 
 const favorites = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><FavoritesPage ids={['overview:equity', 'score']} ready={true} onRetry={() => {}}><section className="panel equity-panel">Cumulative net P&amp;L</section><section className="panel status-card">Trading score</section></FavoritesPage></LanguageProvider>);
 assert.ok(favorites.includes('Cumulative net P&amp;L'));

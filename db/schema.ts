@@ -25,7 +25,7 @@ export const accountLinks=sqliteTable('account_links',{
  authId:text('auth_id').primaryKey(),ownerId:text('owner_id').notNull().unique(),createdAt:text('created_at').notNull(),
 });
 export const accountPreferences=sqliteTable('account_preferences',{
- userId:text('user_id').primaryKey(),language:text('language').notNull().default('zh-Hant'),showDemoData:integer('show_demo_data').notNull().default(1),timezone:text('timezone').notNull().default('Asia/Taipei'),baseCurrency:text('base_currency').notNull().default('auto'),pnlColor:text('pnl_color').notNull().default('green_gain'),activeProfileId:text('active_profile_id'),updatedAt:text('updated_at').notNull(),
+ userId:text('user_id').primaryKey(),language:text('language').notNull().default('zh-Hant'),showDemoData:integer('show_demo_data').notNull().default(1),timezone:text('timezone').notNull().default('Asia/Taipei'),baseCurrency:text('base_currency').notNull().default('auto'),pnlColor:text('pnl_color').notNull().default('green_gain'),cardLayouts:text('card_layouts').notNull().default('{}'),activeProfileId:text('active_profile_id'),updatedAt:text('updated_at').notNull(),
 });
 export const tradingProfiles=sqliteTable('trading_profiles',{
  id:text('id').primaryKey(),userId:text('user_id').notNull(),name:text('name').notNull(),isMain:integer('is_main').notNull().default(0),createdAt:text('created_at').notNull(),updatedAt:text('updated_at').notNull(),
