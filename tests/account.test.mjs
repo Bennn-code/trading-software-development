@@ -55,13 +55,7 @@ try{
  assert.equal((await call(auth.POST,b,{action:'verify',email,code:'654321'})).status,400,'code is single use');
  assert.equal((await json(account.GET,a)).data.account.email,email);assert.ok(providerUserReads>0);
  assert.equal((await call(preferences.PUT,a,{language:'en'})).status,200);assert.equal((await json(account.GET,a)).data.language,'en');
-  const cardLayouts={overview:{enabled:true,items:{'overview:equity':{order:0,columns:7,height:460}}}};
-  assert.equal((await call(preferences.PUT,a,{cardLayouts})).status,200);
-  assert.deepEqual((await json(account.GET,a)).data.preferences.cardLayouts,cardLayouts,'custom card layouts persist with account preferences');
-  assert.equal((await call(preferences.PUT,a,{cardLayouts:{overview:{enabled:true,items:{'overview:equity':{order:0,columns:0,height:460}}}}})).status,400,'invalid card dimensions are rejected');
-  assert.deepEqual((await json(account.GET,a)).data.preferences.cardLayouts,cardLayouts,'invalid layout updates do not overwrite saved preferences');
-  assert.equal((await call(preferences.PUT,a,{cardLayouts:{}})).status,200);
-  assert.deepEqual((await json(account.GET,a)).data.preferences.cardLayouts,{},'restoring all defaults clears every custom layout');
+ assert.equal((await call(preferences.PUT,a,{cardLayouts:{overview:{enabled:true,items:{}}}})).status,400,'removed card layout preferences are no longer accepted');
  assert.equal((await call(preferences.PUT,a,{language:'en'},{origin:''})).status,403,'authenticated writes require an exact same-origin header');
  assert.equal((await call(preferences.PUT,a,{language:'yue-Hant'})).status,200);assert.equal((await json(account.GET,a)).data.language,'yue-Hant');
  assert.equal((await call(preferences.PUT,a,{language:'ja'})).status,400);assert.equal((await call(preferences.PUT,b,{language:'en'})).status,401);

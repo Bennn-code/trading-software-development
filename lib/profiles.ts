@@ -1,22 +1,21 @@
 import { db,ApiError } from './server';
-import { parseCardLayoutPreferences } from './card-layout';
 
 export type TradingProfile={id:string;name:string;isMain:boolean;createdAt:string;tradeCount:number};
-export type ProfilePreferences={language:string;showDemoData:boolean;timezone:string;baseCurrency:string;pnlColor:string;cardLayouts:ReturnType<typeof parseCardLayoutPreferences>};
+export type ProfilePreferences={language:string;showDemoData:boolean;timezone:string;baseCurrency:string;pnlColor:string};
 
 type ProfileRow={
  id:string;name:string;is_main:number;created_at:string;active_profile_id:string|null;trade_count:number;
- language:string|null;show_demo_data:number|null;timezone:string|null;base_currency:string|null;pnl_color:string|null;card_layouts:string|null;
+ language:string|null;show_demo_data:number|null;timezone:string|null;base_currency:string|null;pnl_color:string|null;
 };
 
 async function readProfiles(userId:string){
  return db().prepare(`SELECT p.id,p.name,p.is_main,p.created_at,ap.active_profile_id,
-   ap.language,ap.show_demo_data,ap.timezone,ap.base_currency,ap.pnl_color,ap.card_layouts,COUNT(t.id) AS trade_count
+   ap.language,ap.show_demo_data,ap.timezone,ap.base_currency,ap.pnl_color,COUNT(t.id) AS trade_count
    FROM trading_profiles p
    LEFT JOIN account_preferences ap ON ap.user_id=p.user_id
    LEFT JOIN trades t ON t.user_id=p.user_id AND t.profile_id=p.id
    WHERE p.user_id=?
-   GROUP BY p.id,p.name,p.is_main,p.created_at,ap.active_profile_id,ap.language,ap.show_demo_data,ap.timezone,ap.base_currency,ap.pnl_color,ap.card_layouts
+   GROUP BY p.id,p.name,p.is_main,p.created_at,ap.active_profile_id,ap.language,ap.show_demo_data,ap.timezone,ap.base_currency,ap.pnl_color
    ORDER BY p.is_main DESC,p.created_at`).bind(userId).all<ProfileRow>();
 }
 
@@ -34,7 +33,7 @@ export async function ensureProfiles(userId:string){
  const active=rows.results.find(row=>row.id===preferred)?.id??rows.results[0].id;
  if(active!==preferred)await database.prepare('UPDATE account_preferences SET active_profile_id=?,updated_at=? WHERE user_id=?').bind(active,new Date().toISOString(),userId).run();
  const row=rows.results[0];
- const preferences:ProfilePreferences|null=row.language===null?null:{language:row.language,showDemoData:!!row.show_demo_data,timezone:row.timezone??'Asia/Taipei',baseCurrency:row.base_currency??'auto',pnlColor:row.pnl_color??'green_gain',cardLayouts:parseCardLayoutPreferences(row.card_layouts?JSON.parse(row.card_layouts):{})};
+ const preferences:ProfilePreferences|null=row.language===null?null:{language:row.language,showDemoData:!!row.show_demo_data,timezone:row.timezone??'Asia/Taipei',baseCurrency:row.base_currency??'auto',pnlColor:row.pnl_color??'green_gain'};
  return {activeProfileId:active,profiles:rows.results.map(profile=>({id:profile.id,name:profile.name,isMain:!!profile.is_main,createdAt:profile.created_at,tradeCount:profile.trade_count})) as TradingProfile[],preferences};
 }
 export async function activeProfile(userId:string){const {activeProfileId}=await ensureProfiles(userId);if(!activeProfileId)throw new ApiError('找不到交易子帳號',409);return activeProfileId;}
