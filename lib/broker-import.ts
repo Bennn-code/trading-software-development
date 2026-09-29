@@ -54,7 +54,7 @@ export function searchBrokerGuides(query:string,region:BrokerRegionFilter='all')
 export function exactBrokerGuide(query:string):BrokerGuide|undefined{const q=normalizeSearch(query);if(!q)return;return brokerGuides.find(g=>[g.name,g.id,...(g.keywords??[])].some(value=>normalizeSearch(value)===q));}
 
 type Cell=string|number|boolean|Date|null|undefined;
-export type ParsedBrokerTrade={trade:Trade;warnings:string[];selected:boolean;confirmed:boolean;sourceRow:number};
+export type ParsedBrokerTrade={trade:Trade;warnings:string[];selected:boolean;sourceRow:number};
 const norm=(v:Cell)=>String(v??'').trim().toLowerCase().replace(/[\s_\-()（）/]+/g,'');
 const aliases={
  symbol:['symbol','instrument','contract','product','market','pair','tradingpair','security','商品','商品代號','股票代號','合約'],
@@ -82,7 +82,7 @@ export function parseBrokerRows(rows:Cell[][],guide:BrokerGuide,sourceOffset=0,m
   const currencyText=String(value(row,'currency')??'').toUpperCase(),allowed=['USD','USDT','TWD','CNY','HKD'] as const,currency=allowed.find(c=>currencyText.includes(c))??marketCurrencies[marketOverride];
   const trade={...newTrade(),id:crypto.randomUUID(),market:marketOverride,currency,symbol,side:side(value(row,'side'),entry,exit),account:String(value(row,'account')??guide.name).trim()||guide.name,entryTime,exitTime,entry,exit,quantity:Math.abs(qty),multiplier:1,commission:number(value(row,'commission')),transactionTax:number(value(row,'transactionTax')),fees:number(value(row,'fees')),funding:null,netOverride:number(value(row,'pnl')),profitBasis:'net' as const,strategy:'',notes:`${guide.name} 檔案匯入`,positionValue:marketOverride==='crypto'?Math.abs(qty)*entry:null,leverage:number(value(row,'leverage')),marginMode:norm(value(row,'marginMode')).includes('isolated')?'isolated' as const:norm(value(row,'marginMode')).includes('cross')?'cross' as const:null};
   if(at.pnl<0)warnings.push('檔案未找到盈虧欄，將依價格與數量估算');if(at.commission<0)trade.commission=null;if(at.transactionTax<0)trade.transactionTax=null;if(at.fees<0)trade.fees=null;
-  result.push({trade,warnings,selected:true,confirmed:false,sourceRow:i+1});
+  result.push({trade,warnings,selected:true,sourceRow:i+1});
  }
  return result;
 }

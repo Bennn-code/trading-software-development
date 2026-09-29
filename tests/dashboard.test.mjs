@@ -1,5 +1,5 @@
 import fs from 'node:fs';import ts from 'typescript';import assert from 'node:assert/strict';import {createRequire} from 'node:module';
-const names=['trades','dashboard','periods','screenshot-import','verify-times'];
+const names=['trades','dashboard','periods','display-currency','screenshot-import','verify-times'];
 for(const name of names){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;for(const dep of names)code=code.replaceAll(`"./${dep}"`,`"./${dep}.cjs"`);fs.writeFileSync(`work/${name}.cjs`,code);}
 const require=createRequire(new URL('../work/',import.meta.url)),{newTrade}=require('./trades.cjs'),{selectMarket,currencyForMarket,currencyGroups,dashboardStats,busiestDay,recordsForScope}=require('./dashboard.cjs'),{periodSummary}=require('./periods.cjs'),{verifyTimes}=require('./verify-times.cjs');
 const base={...newTrade(),entry:100,exit:110,quantity:1,multiplier:2,profitBasis:'net',entryTime:'2026-08-01T00:00'};
@@ -13,6 +13,7 @@ const week=recordsForScope(rows,{month:'2026-09',scope:'range',start:'2026-08-31
 assert.equal(recordsForScope(rows,{month:'2026-09',scope:'range',start:'2026-09-01',end:'2026-09-01'}).length,3);
 const usd=dashboardStats(selectMarket(monthly,'all','USD'));assert.equal(usd.avgWin,300);assert.equal(usd.avgLoss,-100);assert.equal(usd.winLossRatio,3);assert.equal(usd.factor,3);assert.equal(usd.best.id,'b');assert.equal(usd.worst.id,'c');
 const busy=busiestDay(monthly);assert.equal(busy.date,'2026-09-01');assert.equal(busy.trades.length,3);assert.ok(busy.trades.some(t=>t.currency==='USDT'));
+const tied=[{...base,id:'b',exitTime:'2026-09-02T10:00',netOverride:10},{...base,id:'a',exitTime:'2026-09-01T10:00',netOverride:10},{...base,id:'c',exitTime:'2026-09-03T10:00',netOverride:-10},{...base,id:'d',exitTime:'2026-09-04T10:00',netOverride:-10}];const tiedStats=dashboardStats(tied);assert.equal(tiedStats.best.id,'a');assert.equal(tiedStats.worst.id,'d');const tiedDay=busiestDay([...tied.slice(0,2),...tied.slice(2)]);assert.equal(tiedDay.ties,4);assert.equal(tiedDay.date,'2026-09-04');
 assert.equal(busiestDay([]),null);assert.equal(dashboardStats([]).best,null);assert.equal(dashboardStats([]).winLossRatio,null);
 assert.equal(periodSummary(rows,'2026-09-01','all','USD').daily.count,2);assert.equal(periodSummary(rows,'2026-09-01','all','USDT').daily.count,1);
 const row={sourceLabel:'第8列',symbol:'EGLDUSDT',entry:20,exit:21,entryTime:'2026-09-15 23:00:00',exitTime:'2026-09-15 01:00:00',warnings:[]};

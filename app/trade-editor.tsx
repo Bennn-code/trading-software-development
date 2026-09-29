@@ -55,12 +55,12 @@ export default function TradeEditor({open,onClose,trade,demo,onSave,accounts=[],
     <DialogHeader><DialogTitle>{trade?tx('編輯交易'):tx('記下這筆交易')}</DialogTitle><DialogDescription>{demo?tx('示範模式：變更只在本次瀏覽有效。'):tx('已平倉交易 · 時間使用 {0}',[timezoneLabel])}</DialogDescription></DialogHeader>
     {draft&&<form onSubmit={submit} noValidate>
      <fieldset disabled={busy}>
-      <div className="editor-body">
+      <div className={'editor-body' + (!trade ? ' editor-body-no-screenshot' : '')}>
        <div className="editor-main"><h3>{tx('交易資訊')}</h3>{!demo&&<TradingAccountSelect accounts={accounts} value={targetProfileId} onChange={setProfileOverride} disabled={!!trade}/>}<TradeFields key={draft.id} trade={draft} onChange={value=>{setDraft(value);setTradeDuplicate(null);}}/></div>
-       <aside className="editor-aside"><h3>{tx('交易截圖')}</h3><input ref={picker} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>chooseFile(e.target.files?.[0])}/>
+       {trade&&<aside className="editor-aside"><h3>{tx('交易截圖')}</h3><input ref={picker} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>chooseFile(e.target.files?.[0])}/>
         {preview?<div className="image-preview"><img src={preview} alt={tx('交易截圖預覽')}/><button type="button" aria-label={tx('移除截圖')} onClick={()=>{if(previewObjectUrl.current)URL.revokeObjectURL(previewObjectUrl.current);previewObjectUrl.current='';setFile(null);setPreview('');setDraft({...draft,imageId:null});}}><X size={16}/></button></div>:<button type="button" className="upload-zone" disabled={demo||busy} onClick={()=>picker.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!demo&&!busy)chooseFile(e.dataTransfer.files[0]);}}><ImagePlus size={30}/><strong>{demo?tx('在我的紀錄保存截圖'):tx('點選或拖曳上傳截圖')}</strong><span>{tx('PNG、JPG、WebP · 最大 5 MB')}</span></button>}
         <div className="ai-note"><ScanLine size={19}/><div><strong>{tx('同一張圖有多筆交易？')}</strong><p>{tx('主頁的「截圖匯入」可逐筆確認並分開儲存。自動辨識需先啟用辨識服務。')}</p></div></div>
-       </aside>
+       </aside>}
      </div>
      {tradeDuplicate&&<TradeDuplicateWarning duplicate={tradeDuplicate} busy={busy} onConfirm={()=>void confirmTradeDuplicate()}/>}
      </fieldset>

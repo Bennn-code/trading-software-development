@@ -31,12 +31,12 @@ const loadScreenshotImport=()=>import('./screenshot-import');
 const loadBrokerImport=()=>import('./broker-import');
 const loadTradeDetail=()=>import('./trade-detail');
 const TradeEditor=lazy(loadTradeEditor);
-const AccountSettings=lazy(()=>import('./account-settings'));
+const loadAccountSettings=()=>import('./account-settings'); const AccountSettings=lazy(loadAccountSettings);
 const TradeDetail=lazy(loadTradeDetail);
 const ScreenshotImport=lazy(loadScreenshotImport);
 const BrokerImport=lazy(loadBrokerImport);
 const ReviewBook=lazy(()=>import('./review-book'));
-const TradeStatus=lazy(()=>import('./trade-status'));
+const loadTradeStatus=()=>import('./trade-status'); const TradeStatus=lazy(loadTradeStatus);
 
 export const money=(n:number)=>new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
 const signed=(n:number)=>(n>0?'+':'')+money(n);
@@ -99,6 +99,7 @@ export default function Journal({signedIn:initialSignedIn,initialView='overview'
   useEffect(()=>{if(initialSignedIn)void reload(false,false);},[initialSignedIn,reload]);
   useEffect(()=>{if(preferencesReady&&signedIn)void reload(false,demo);},[demo,signedIn,preferencesReady,reload]);
   useEffect(()=>{if(!preferencesReady||loading)return;let cancelled=false;const run=()=>{if(!cancelled)void Promise.all([loadTradeEditor(),loadScreenshotImport(),loadBrokerImport()]);};const idleWindow=window as Window&{requestIdleCallback?:(callback:()=>void,options?:{timeout:number})=>number;cancelIdleCallback?:(id:number)=>void};let timer:number|undefined,idleId:number|undefined;if(idleWindow.requestIdleCallback)idleId=idleWindow.requestIdleCallback(run,{timeout:2500});else timer=window.setTimeout(run,1200);return()=>{cancelled=true;if(timer!==undefined)window.clearTimeout(timer);if(idleId!==undefined)idleWindow.cancelIdleCallback?.(idleId);};},[preferencesReady,loading]);
+ useEffect(()=>{if(!preferencesReady)return;let cancelled=false;const run=()=>{if(!cancelled)void Promise.all([loadAccountSettings(),loadTradeStatus()]);};const idleWindow=window as Window&{requestIdleCallback?:(callback:()=>void,options?:{timeout:number})=>number;cancelIdleCallback?:(id:number)=>void};let timer:number|undefined,idleId:number|undefined;if(idleWindow.requestIdleCallback)idleId=idleWindow.requestIdleCallback(run,{timeout:1800});else timer=window.setTimeout(run,500);return()=>{cancelled=true;if(timer!==undefined)window.clearTimeout(timer);if(idleId!==undefined)idleWindow.cancelIdleCallback?.(idleId);};},[preferencesReady]);
  function beginImport(){if(!canLeaveReview())return;if(!signedIn){setDemo(false);toast.info(tx("請先登入以匯入截圖"));return;}setDemo(false);setImportOpen(true);}
  function beginBrokerImport(){if(!canLeaveReview())return;if(!signedIn){setDemo(false);toast.info(tx("請先登入以匯入交易所檔案"));return;}setDemo(false);setBrokerImportOpen(true);}
  async function imported(rows:Trade[],saved:number,skipped:number,profileId?:string){if(profileId&&profileId!==activeProfileId)await switchProfile(profileId);else void reload();setView('trades');const latest=[...rows].sort((a,b)=>b.exitTime.localeCompare(a.exitTime))[0];if(latest){setMonth(latest.exitTime.slice(0,7));setCurrency('all');}setMarket('all');setRecordScope('month');setDay('');setQuery('');toast.success(tx("已分別儲存 {0} 筆交易{1}", [saved,skipped?`，略過 ${skipped} 筆已存在的紀錄`:'']));}

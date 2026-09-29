@@ -69,13 +69,25 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     const previous = trades.filter(trade => trade.exitTime.slice(0, 10) >= priorStart.toISOString().slice(0, 10) && trade.exitTime.slice(0, 10) <= priorEnd.toISOString().slice(0, 10));
     const mistakes = mistakeStats(selected);
     const strategies = strategyStats(selected);
-    const symbols = [...new Map(selected.map(trade => [trade.symbol, selected.filter(row => row.symbol === trade.symbol).length])).entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const productKeys = [...new Set(selected.map(trade => `${trade.market}|${trade.currency}`))];
-    const products: ProductCharts[] = productKeys.map(key => {
-      const [market, currency] = key.split('|') as [Trade['market'], Trade['currency']];
-      const rows = selected.filter(trade => trade.market === market && trade.currency === currency);
-      const previousRows = previous.filter(trade => trade.market === market && trade.currency === currency);
+    const symbolCounts = new Map<string, number>();
+    const productGroups = new Map<string, { market: Trade['market']; currency: Trade['currency']; trades: Trade[] }>();
+    const previousProductGroups = new Map<string, Trade[]>();
+    for (const trade of selected) {
+      symbolCounts.set(trade.symbol, (symbolCounts.get(trade.symbol) ?? 0) + 1);
+      const key = `${trade.market}|${trade.currency}`;
+      const group = productGroups.get(key);
+      if (group) group.trades.push(trade);
+      else productGroups.set(key, { market: trade.market, currency: trade.currency, trades: [trade] });
+    }
+    for (const trade of previous) {
+      const key = `${trade.market}|${trade.currency}`;
+      const group = previousProductGroups.get(key);
+      if (group) group.push(trade);
+      else previousProductGroups.set(key, [trade]);
+    }
+    const symbols = [...symbolCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const products: ProductCharts[] = [...productGroups.entries()].map(([key, { market, currency, trades: rows }]) => {
+      const previousRows = previousProductGroups.get(key) ?? [];
       const daily = weekdayPnlStats(rows);
       const durations = rows.filter(trade => Number.isFinite(durationMinutes(trade)));
       const winningDurations = durations.filter(trade => pnl(trade) > 0);
@@ -93,18 +105,23 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
         expectancyPercent: averageReturnPercent(rows),
       };
     });
-    const timeProductKeys = [...new Set(timeSelected.map(trade => `${trade.market}|${trade.currency}`))];
-    const timeProducts: TimeProductCharts[] = timeProductKeys.map(key => {
-      const [market, currency] = key.split('|') as [Trade['market'], Trade['currency']];
-      const rows = timeSelected.filter(trade => trade.market === market && trade.currency === currency);
-      const clock = Array.from({ length: 24 }, (_, hour) => {
-        const bucket = rows.filter(trade => Number(trade.entryTime.slice(11, 13)) === hour);
-        return { position: hour, label: `${String(hour).padStart(2, '0')}:00`, count: bucket.length, winRate: bucket.length ? winRate(bucket) : null };
-      });
+    const timeProductGroups = new Map<string, { market: Trade['market']; currency: Trade['currency']; trades: Trade[] }>();
+    for (const trade of timeSelected) {
+      const key = `${trade.market}|${trade.currency}`;
+      const group = timeProductGroups.get(key);
+      if (group) group.trades.push(trade);
+      else timeProductGroups.set(key, { market: trade.market, currency: trade.currency, trades: [trade] });
+    }
+    const timeProducts: TimeProductCharts[] = [...timeProductGroups.values()].map(({ market, currency, trades: rows }) => {
+      const hourly: Trade[][] = Array.from({ length: 24 }, () => []);
+      for (const trade of rows) hourly[Number(trade.entryTime.slice(11, 13))]?.push(trade);
+      const clock = hourly.map((bucket, hour) => ({ position: hour, label: `${String(hour).padStart(2, '0')}:00`, count: bucket.length, winRate: bucket.length ? winRate(bucket) : null }));
       const holdingMap = new Map<number, Trade[]>();
       for (const trade of rows) {
         const position = holdingTimeBucket(durationMinutes(trade));
-        holdingMap.set(position, [...(holdingMap.get(position) || []), trade]);
+        const bucket = holdingMap.get(position);
+        if (bucket) bucket.push(trade);
+        else holdingMap.set(position, [trade]);
       }
       const holding = [...holdingMap].sort((a, b) => a[0] - b[0]).map(([position, bucket]) => ({ position, label: holdingTimeLabel(position), count: bucket.length, winRate: winRate(bucket) }));
       return { market, currency, count: rows.length, clock, holding };
@@ -115,10 +132,20 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     const leverageRows = selected.filter(trade => (trade.leverage || 0) > 0);
     const leverage = leverageRows.length ? leverageRows.reduce((sum, trade) => sum + (trade.leverage || 0), 0) / leverageRows.length : 0;
     const riskScore = Math.min(100, Math.round(frequency * 12 + Math.min(avgLossPercent * 3, 35) + Math.min(leverage * 3, 35)));
-    const currencyGroups = [...new Set(selected.map(trade => trade.currency))].map(currency => [currency, selected.filter(trade => trade.currency === currency)] as const);
-    const bestDays = currencyGroups.flatMap(([currency, rows]) => {
+    const currencyGroups = new Map<Trade['currency'], Trade[]>();
+    for (const trade of selected) {
+      const group = currencyGroups.get(trade.currency);
+      if (group) group.push(trade);
+      else currencyGroups.set(trade.currency, [trade]);
+    }
+    const bestDays = [...currencyGroups.entries()].flatMap(([currency, rows]) => {
       const byDay = new Map<string, Trade[]>();
-      for (const trade of rows) byDay.set(trade.exitTime.slice(0, 10), [...(byDay.get(trade.exitTime.slice(0, 10)) || []), trade]);
+      for (const trade of rows) {
+        const date = trade.exitTime.slice(0, 10);
+        const day = byDay.get(date);
+        if (day) day.push(trade);
+        else byDay.set(date, [trade]);
+      }
       const totals = [...byDay].map(([date, dayTrades]) => ({ date, trades: dayTrades, net: dayTrades.reduce((sum, trade) => sum + pnl(trade), 0), currency }))
         .sort((a, b) => b.net - a.net);
       const best = totals[0];
