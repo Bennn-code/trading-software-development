@@ -22,6 +22,7 @@ export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.qua
 export function initialMargin(t:Trade) { return t.market==='crypto'&&t.leverage&&t.leverage>0&&positionValue(t)>0 ? positionValue(t)/t.leverage : null; }
 export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(isFuturesMarket(t.market)?t.multiplier:1); }
 export function feeCost(t:Trade) { return (t.feeMode==='rebate'?-1:1)*Math.abs(t.fees??0); }
+export function feeAmountForDisplay(amount:number,direction:'paid'|'rebate'|'funding'='paid'){if(direction==='funding')return amount;return direction==='rebate'?-Math.abs(amount):Math.abs(amount);}
 export function itemizedFeeCost(t:Trade) { return [t.exchangeFee,t.clearingFee,t.settlementFee,t.regulatoryFee,t.secFee,t.finraFee,t.futuresTax].reduce<number>((total,value)=>total+Math.abs(value??0),0); }
 export function pnl(t:Trade) { const gross=t.netOverride??grossPnl(t); return Math.round((t.netOverride!==null&&t.profitBasis!=='gross'?gross:gross-Math.abs(t.commission??0)-Math.abs(t.transactionTax??0)-itemizedFeeCost(t)-feeCost(t)-(t.funding??0))*100)/100; }
 export function stats(trades:Trade[]) {

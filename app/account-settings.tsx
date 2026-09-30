@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Check, Clock3, Download, Globe, KeyRound, Mail, Palette, Plus, ShieldCheck, Trash2, UserRound, WalletCards } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useI18n } from './language-provider';
@@ -10,14 +10,19 @@ import { timezoneOptions,baseCurrencies,currencyName,utcOffsetLabel,type UserPre
 import { chooseExportDestination, isExportCancelled, saveExportFile } from '@/lib/export-file';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MAX_TRADING_PROFILES } from '@/lib/profile-limits';
+import { applyThemeMode, readThemeMode, themeChangeEvent, type ThemeMode } from '@/lib/theme';
 
 export type AccountSettingsInfo=AccountBootstrap;
 type SecurityEvent={type:string;label:string;createdAt:string};
 declare global{interface Window{turnstile?:{render:(node:HTMLElement,options:Record<string,unknown>)=>string;reset:(id:string)=>void}}}
 
+function subscribeThemeMode(onStoreChange:()=>void){if(typeof window==='undefined')return()=>{};window.addEventListener(themeChangeEvent,onStoreChange);window.addEventListener('storage',onStoreChange);return()=>{window.removeEventListener(themeChangeEvent,onStoreChange);window.removeEventListener('storage',onStoreChange);};}
+const serverThemeMode=():ThemeMode=>'system';
+
 export default function AccountSettings({initialInfo,onInfoChange}:{initialInfo?:AccountSettingsInfo|null;onInfoChange?:(info:AccountSettingsInfo)=>void}={}){
  const {language,setLanguage,t,preferenceError}=useI18n();
  const [info,setInfo]=useState<AccountSettingsInfo|null>(initialInfo??null),[error,setError]=useState(''),[linkConfirm,setLinkConfirm]=useState(false),[busy,setBusy]=useState(false);
+ const themeMode=useSyncExternalStore(subscribeThemeMode,readThemeMode,serverThemeMode);
  useEffect(()=>{if(initialInfo)return;let active=true;getAccountBootstrap().then(d=>{if(active&&d){setInfo(d);onInfoChange?.(d);}else if(active)setError('無法載入設定，請重新載入頁面。');}).catch(e=>{if(active)setError(e instanceof Error?e.message:'無法載入設定，請重新載入頁面。');});return()=>{active=false;};},[initialInfo,onInfoChange]);
  async function action(path:string){setBusy(true);setError('');try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});const d=await r.json() as{error?:string};if(!r.ok)throw new Error(d.error);window.location.assign('/?mode=mine&view=settings');}catch(e){setError(e instanceof Error?e.message:'操作失敗，請重試');setBusy(false);}}
  async function updatePreference(patch:Record<string,unknown>){setBusy(true);setError('');try{const r=await fetch('/api/account/preferences',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)}),d=await r.json() as{error?:string};if(!r.ok)throw new Error(d.error);if(info?.preferences){const next={...info,preferences:{...info.preferences,...patch} as UserPreferences};setInfo(next);onInfoChange?.(next);updateAccountBootstrap(current=>({...current,...next}));}if('pnlColor' in patch)document.documentElement.dataset.pnlColor=String(patch.pnlColor);if('timezone' in patch)localStorage.setItem('trade-timezone',String(patch.timezone));if('baseCurrency' in patch)localStorage.setItem('trade-base-currency',String(patch.baseCurrency));window.dispatchEvent(new CustomEvent('trading-preferences',{detail:patch}));}catch(e){setError(e instanceof Error?e.message:'設定儲存失敗');}finally{setBusy(false);}}
@@ -27,6 +32,7 @@ export default function AccountSettings({initialInfo,onInfoChange}:{initialInfo?
    <div className="language-options" role="group" aria-label={t('顯示語言')}>{([['zh-Hant','繁體中文','Traditional Chinese'],['zh-Hans','简体中文','Simplified Chinese'],['yue-Hant','粵語','廣東話'],['en','English','英文']] as const).map(([value,label,subtitle])=><button key={value} lang={value} aria-pressed={language===value} onClick={()=>setLanguage(value)}><span><strong>{label}</strong><small>{subtitle}</small></span>{language===value&&<Check size={20}/>}</button>)}</div>
    <p className="field-hint">{t('登入後會同步到你的帳號，未登入時則保存在此瀏覽器。')}</p>{preferenceError&&<p role="alert" className="settings-error">{t(preferenceError)}</p>}
   </section>
+   <section className="panel settings-panel"><div className="settings-title"><Palette size={22}/><div><h2>{t('外觀模式')}</h2><p>{t('選擇系統明暗外觀，設定會保存在此瀏覽器。')}</p></div></div><div className="setting-toggle theme-mode-setting" role="group" aria-label={t('外觀模式')}>{([['system','依照系統'],['light','明亮'],['dark','黑暗']] as const).map(([value,label])=><button key={value} type="button" aria-pressed={themeMode===value} className={themeMode===value?'active':''} onClick={()=>applyThemeMode(value)}>{t(label)}</button>)}</div></section>
   {info?.account&&info.preferences&&<><section className="panel settings-panel"><div className="settings-title"><Palette size={22}/><div><h2>{t('顯示與統計偏好')}</h2><p>{t('控制示範資料、時區、主要換算幣別與盈虧顏色。')}</p></div></div><div className="settings-fields">
    <div className="switch-setting"><span><strong>{t('顯示示範資料')}</strong><small>{t('關閉後不再顯示示範資料頁籤。')}</small></span><div className="setting-toggle" role="group" aria-label={t('顯示示範資料')}><button type="button" className={info.preferences.showDemoData?'active':''} disabled={busy} onClick={()=>updatePreference({showDemoData:true})}>{t('開啟')}</button><button type="button" className={!info.preferences.showDemoData?'active':''} disabled={busy} onClick={()=>updatePreference({showDemoData:false})}>{t('關閉')}</button></div></div>
    <label className="settings-select-field">{t('交易時間時區')}<Select value={info.preferences.timezone} disabled={busy} onValueChange={value=>void updatePreference({timezone:value})}><SelectTrigger className="w-full min-w-0 h-11" aria-label={t('交易時間時區')}><SelectValue/></SelectTrigger><SelectContent>{timezoneOptions.map(([value,place])=><SelectItem key={value} value={value}>{t(place)} · {utcOffsetLabel(value)}</SelectItem>)}</SelectContent></Select></label>

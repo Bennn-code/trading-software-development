@@ -5,3 +5,5 @@
 
 .setting-toggle{display:flex;border:1px solid var(--border);border-radius:9px;padding:3px;gap:3px}.setting-toggle button{border-radius:6px;padding:7px 14px;color:var(--muted-foreground)}.setting-toggle button.active{background:#168365;color:#fff}.setting-toggle button:disabled{opacity:.55}
 .legal-panel details[open]>summary{margin-bottom:14px}.legal-copy{max-width:1040px;gap:15px;line-height:1.8}.legal-copy p{font-size:14px;line-height:1.8;overflow-wrap:anywhere}.legal-section{display:grid;gap:6px;border-top:1px solid var(--border);padding-top:12px}.legal-copy .legal-section h3{font-size:15px;font-weight:650;margin:0}.legal-references{display:grid;gap:8px;padding-left:22px}.legal-references a{color:var(--primary);text-decoration:underline;text-underline-offset:3px}.legal-effective{color:var(--muted-foreground)}
+
+.theme-mode-setting{width:100%;max-width:500px}.theme-mode-setting button{flex:1;min-width:0;white-space:nowrap}.theme-mode-setting button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}@media(max-width:420px){.theme-mode-setting button{padding:7px 8px;font-size:13px}}

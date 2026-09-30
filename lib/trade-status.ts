@@ -20,6 +20,11 @@ export function dateDaysAgo(days:number){const d=new Date();d.setDate(d.getDate(
 export function inEntryDateRange(trades:Trade[],start:string,end:string){return trades.filter(trade=>trade.entryTime.slice(0,10)>=start&&trade.entryTime.slice(0,10)<=end);}
 export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,1);return mistakeRules.map(([name,re])=>{const count=trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length;return{name,count,percent:count/total*100};}).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
+export function strategyUsageByMarket(trades:Trade[]){
+ const summarize=(rows:Trade[])=>{const written=rows.filter(trade=>trade.strategy.trim());const counts=new Map<string,number>();for(const trade of written){const category=strategyRules.find(([,rule])=>rule.test(trade.strategy))?.[0]??'其他策略';counts.set(category,(counts.get(category)??0)+1);}const ranked=[...counts].sort((a,b)=>b[1]-a[1]);let allocated=0;const strategies=ranked.map(([name,count],index)=>{const percent=index===ranked.length-1?100-allocated:count/written.length*100;allocated+=percent;return{name,count,percent};});return{tradeCount:written.length,strategies};};
+ const byMarket=new Map<Trade['market'],Trade[]>();for(const trade of trades){const rows=byMarket.get(trade.market)??[];rows.push(trade);byMarket.set(trade.market,rows);}
+ return{total:summarize(trades),markets:[...byMarket].map(([market,rows])=>({market,...summarize(rows)})).filter(group=>group.tradeCount>0)};
+}
 export function durationMinutes(t:Trade){return Math.max(0,(new Date(t.exitTime).getTime()-new Date(t.entryTime).getTime())/60000);}
 export function averageDurationMinutes(trades:Trade[]){const values=trades.map(durationMinutes).filter(Number.isFinite);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}
 export function weekdayPnlStats(trades:Trade[]){

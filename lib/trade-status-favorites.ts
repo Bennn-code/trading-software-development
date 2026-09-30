@@ -10,7 +10,7 @@ export const tradeStatusFavoriteCards = [
   { id: 'strategies', title: '交易策略偏好' },
   { id: 'best-day', title: '最好的一天佔本期獲利日總額' },
   { id: 'market-metrics', title: '各市場交易統計' },
-  { id: 'summary', title: '交易週報' },
+  { id: 'summary', title: '交易報導' },
   { id: 'best-worst-time', title: '最佳與最低勝率時間' },
   { id: 'comparison', title: '與前一個等長期間比較' },
   { id: 'rules', title: '所選期間遵守的規則' },

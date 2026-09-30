@@ -3,7 +3,7 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 fs.mkdirSync('work',{recursive:true});
-const names=['trades','validation','display-currency','screenshot-import','import-review','periods','report-period','reviews','review-ai'];
+const names=['trades','validation','display-currency','screenshot-import','import-review','periods','report-period','reviews','review-ai','review-search'];
 for(const name of names){let code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;for(const dependency of names)code=code.replaceAll(`"./${dependency}"`,`"./${dependency}.cjs"`);fs.writeFileSync(`work/${name}.cjs`,code);}
 const require=createRequire(new URL('../work/',import.meta.url));
 const {newTrade,pnl}=require('./trades.cjs');
@@ -12,6 +12,7 @@ const {normalizeRow}=require('./screenshot-import.cjs');
 const {importBlockers}=require('./import-review.cjs');
 const {reviewBounds,reviewFacts,reviewFingerprint}=require('./reviews.cjs');
 const {generateReview}=require('./review-ai.cjs');
+const {dailyReviewMatches}=require('./review-search.cjs');
 const t={...newTrade(),entry:29005.5,exit:28973.25,quantity:5,multiplier:2,commission:-2.5,fees:-3.6,netOverride:-322.5,profitBasis:'gross',entryTime:'2026-09-14T22:29',exitTime:'2026-09-14T22:36'};
 assert.equal(pnl(t),-328.6);
 assert.equal(pnl({...t,netOverride:-400}),-406.1);
@@ -38,6 +39,9 @@ const facts=reviewFacts([t,{...t,id:'other',currency:'USDT',netOverride:100,prof
 assert.equal(facts[0].net,-328.6);assert.equal(facts[1].net,100);assert.equal(facts[0].commission,2.5);assert.equal(facts[0].fees,3.6);
 assert.notEqual(await reviewFingerprint([t],'',''),await reviewFingerprint([{...t,fees:5}],'',''));
 assert.notEqual(await reviewFingerprint([t],'',''),await reviewFingerprint([t],'','new reflection'));
+const dailyMatches=dailyReviewMatches([{start_date:'2026-09-12',payload:JSON.stringify({strategy:'等待突破確認後進場',reflection:'遵守停損並記錄結果'})},{start_date:'2026-09-11',payload:'not-json'}],'突破');
+assert.deepEqual(dailyMatches.map(({date,kind})=>({date,kind})),[{date:'2026-09-12',kind:'strategy'}],'daily search returns matching saved fields and safely skips malformed legacy rows');
+assert.deepEqual(dailyReviewMatches([{start_date:'2026-09-12',payload:JSON.stringify({strategy:'突破',reflection:''})}],'x'),[],'short search terms are ignored');
 let body;
 const summary={overview:'test',strategySummary:'策略紀律',reflectionSummary:'心得紀律',strengths:[],improvements:['補寫心得'],nextSteps:['核對費用']};
 const fake=async(url,init)=>{body=JSON.parse(init.body);return new Response(JSON.stringify({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(summary)}]}]}));};
