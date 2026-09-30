@@ -23,13 +23,15 @@ export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
 export type EnteredStrategyRow={name:string;count:number;percent:number};
 export type EnteredStrategyGroup={market:Trade['market'];count:number;rows:EnteredStrategyRow[]};
+export type EnteredStrategyStats={overall:EnteredStrategyRow[];markets:EnteredStrategyGroup[]};
 function enteredStrategyNames(value:string){return [...new Set(value.split(/[、,，;；\n]+/).map(name=>name.trim().replace(/\s+/g,' ')).filter(Boolean))];}
 function strategyRows(counts:Map<string,number>):EnteredStrategyRow[]{const total=[...counts.values()].reduce((sum,count)=>sum+count,0);return [...counts].map(([name,count])=>({name,count,percent:total?count/total*100:0})).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));}
-export function enteredStrategyStats(trades:Trade[]){
+export function enteredStrategyStats(trades:Trade[]):EnteredStrategyStats{
  const overall=new Map<string,number>(),markets=new Map<Trade['market'],Map<string,number>>();
  for(const trade of trades){const names=enteredStrategyNames(trade.strategy||'');if(!names.length)continue;let market=markets.get(trade.market);if(!market){market=new Map();markets.set(trade.market,market);}for(const name of names){overall.set(name,(overall.get(name)||0)+1);market.set(name,(market.get(name)||0)+1);}}
  return{overall:strategyRows(overall),markets:[...markets].map(([market,counts])=>({market,count:[...counts.values()].reduce((sum,value)=>sum+value,0),rows:strategyRows(counts)})).sort((a,b)=>a.market.localeCompare(b.market))};
 }
+export function hasEnteredStrategies(stats:EnteredStrategyStats){return stats.overall.length>0;}
 function utcMillis(value:string,timezone='Asia/Taipei'){try{return Date.parse(`${convertWallTime(value,timezone,'UTC')}:00Z`);}catch{return NaN;}}
 export function durationMinutes(t:Trade){return Math.max(0,(utcMillis(t.exitTime,t.timezone)-utcMillis(t.entryTime,t.timezone))/60000);}
 export function averageDurationMinutes(trades:Trade[]){const values=trades.map(durationMinutes).filter(Number.isFinite);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}

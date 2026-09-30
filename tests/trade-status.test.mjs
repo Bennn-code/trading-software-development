@@ -9,7 +9,7 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,chooseMaeMfeIntervalMinutes,enteredStrategyStats,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,lossRecoveryStats,maeMfeCandleInWindow,maeMfeCandleWindow,maeMfeFingerprint,maeMfeIntervalLabel,maeMfeProviderInterval,profitConcentration,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,chooseMaeMfeIntervalMinutes,enteredStrategyStats,hasEnteredStrategies,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,lossRecoveryStats,maeMfeCandleInWindow,maeMfeCandleWindow,maeMfeFingerprint,maeMfeIntervalLabel,maeMfeProviderInterval,profitConcentration,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -59,6 +59,8 @@ const strategyStats=enteredStrategyStats([
  {...rTrade('strategy-3',10,'突破'),market:'us-stocks'},
  {...rTrade('strategy-empty',10,''),market:'us-stocks'},
 ]);
+assert.equal(hasEnteredStrategies(enteredStrategyStats([])),false,'strategy preference card stays hidden until the user records at least one strategy');
+assert.equal(hasEnteredStrategies(strategyStats),true,'strategy preference card appears after a strategy is recorded');
 assert.deepEqual(Object.fromEntries(strategyStats.overall.map(row=>[row.name,[row.count,row.percent]])),{'突破':[3,60],'回測':[1,20],'趨勢':[1,20]},'strategy percentages count normalized distinct entries, not trades or empty fields');
 assert.equal(strategyStats.markets.find(row=>row.market==='crypto').count,4);
 assert.equal(strategyStats.markets.find(row=>row.market==='us-stocks').rows[0].name,'突破');
