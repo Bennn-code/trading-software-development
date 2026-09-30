@@ -43,5 +43,5 @@ const usage=strategyUsageByMarket([usageTrade('crypto','趨勢突破與停損'),
 assert.equal(usage.total.tradeCount,3,'blank strategy fields do not dilute strategy usage');
 assert.equal(usage.total.strategies.reduce((sum,item)=>sum+item.percent,0),100,'each entered strategy is assigned to one category');
 assert.deepEqual(usage.markets.map(group=>[group.market,group.tradeCount]),[['crypto',2],['futures',1]],'strategy usage is calculated independently by market');
-assert.equal(usage.markets.find(group=>group.market==='crypto').strategies[0].name,'趨勢／突破','strategy usage uses entered strategy text, not freeform trade notes');
+assert.deepEqual(usage.markets.find(group=>group.market==='crypto').strategies.map(item=>item.name).sort(),['區間反轉','趨勢突破與停損'].sort(),'strategy usage displays the exact entered strategy texts, not generic categories or freeform trade notes');
 console.log('Passed holding-time, weekday P&L, Sharpe, profitable-day share and minute/hour bucket checks.');
