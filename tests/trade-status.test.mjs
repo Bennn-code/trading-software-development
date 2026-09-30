@@ -9,7 +9,7 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,lossRecoveryStats,maeMfeFingerprint,profitConcentration,sharpeRatio,strategyRStats,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,chooseMaeMfeIntervalMinutes,enteredStrategyStats,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,lossRecoveryStats,maeMfeCandleInWindow,maeMfeCandleWindow,maeMfeFingerprint,maeMfeIntervalLabel,maeMfeProviderInterval,profitConcentration,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -39,15 +39,29 @@ assert.equal(sharpeRatio([trade('2026-09-21T10:00',10)]),null,'a single trade is
 assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',-5)]),0.25,'expectancy return is the average per-trade return');
 assert.equal(averageReturnPercent([{...trade('2026-09-21T10:00',50,null),market:'futures',multiplier:10,quantity:1}]),5,'futures percentage includes the contract multiplier');
 assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10,0)]),null,'expectancy percentage is unavailable without a notional value');
-const rTrade=(id,netOverride,strategy='回測',riskAmount=10)=>({id,market:'crypto',currency:'USDT',exchangeSource:'bybit',symbol:'BTCUSDT',side:'long',entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',timezone:'Asia/Taipei',entry:100,exit:100,quantity:1,multiplier:1,positionValue:null,fees:null,funding:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null,feeMode:'paid',netOverride,profitBasis:'net',strategy,notes:'',riskAmount});
-const strategyR=strategyRStats([rTrade('r1',20),rTrade('r2',-5),rTrade('r3',0),rTrade('r4',100,'無初始風險',null)]);
-assert.equal(strategyR.length,1,'R is omitted when risk amount or strategy is missing');
-assert.equal(strategyR[0].averageR,.5);
-assert.equal(strategyR[0].expectancyR,.5,'expectancy R uses win-rate weighted average win/loss R');
-assert.equal(strategyR[0].averageWinR,2);
-assert.equal(strategyR[0].averageLossR,-.5);
-assert.equal(strategyR[0].count,3);
-assert.equal(strategyR[0].sampleSufficient,false,'small strategy samples are flagged');
+const rTrade=(id,netOverride,strategy='回測')=>({id,market:'crypto',currency:'USDT',exchangeSource:'bybit',symbol:'BTCUSDT',side:'long',entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',timezone:'Asia/Taipei',entry:100,exit:100,quantity:1,multiplier:1,positionValue:null,fees:null,funding:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null,feeMode:'paid',netOverride,profitBasis:'net',strategy,notes:''});
+assert.equal(chooseMaeMfeIntervalMinutes(30,300),1,'short holdings keep the 1-minute detail');
+assert.equal(chooseMaeMfeIntervalMinutes(500,300),5,'select the finest interval that stays within the request cap');
+assert.equal(chooseMaeMfeIntervalMinutes(5000,300),60,'long holdings move to a larger candle interval as needed');
+assert.equal(chooseMaeMfeIntervalMinutes(360000,6000),240,'very long holdings use the largest supported interval when smaller candles exceed the request cap');
+assert.equal(maeMfeIntervalLabel(240),'4h');
+const oneMinuteWindow=maeMfeCandleWindow(Date.parse('2026-09-21T10:00:00Z'),Date.parse('2026-09-21T10:01:00Z'),1);
+assert.deepEqual(oneMinuteWindow,{start:Date.parse('2026-09-21T10:00:00Z'),end:Date.parse('2026-09-21T10:00:00Z'),step:60_000},'an exit exactly on a candle boundary excludes the new candle');
+assert.equal(maeMfeCandleInWindow(Date.parse('2026-09-21T10:00:00Z'),oneMinuteWindow),true);
+assert.equal(maeMfeCandleInWindow(Date.parse('2026-09-21T10:01:00Z'),oneMinuteWindow),false,'the candle beginning at exit is never included');
+const fiveMinuteWindow=maeMfeCandleWindow(Date.parse('2026-09-21T10:01:00Z'),Date.parse('2026-09-21T10:11:00Z'),5);
+assert.deepEqual([fiveMinuteWindow.start,fiveMinuteWindow.end],[Date.parse('2026-09-21T10:00:00Z'),Date.parse('2026-09-21T10:10:00Z')],'coarser windows include the entry/exit buckets but not the bucket starting exactly at exit');
+const expectedIntervals={bybit:['1','5','15','60','240'],bitget:['1m','5m','15m','1H','4H'],okx:['1m','5m','15m','1H','4H'],kucoin:['60','300','900','3600','14400'],bingx:['1m','5m','15m','1h','4h'],mexc:['Min1','Min5','Min15','Min60','Hour4']};
+for(const [provider,codes] of Object.entries(expectedIntervals))for(const [index,minutes] of [1,5,15,60,240].entries())assert.equal(maeMfeProviderInterval(provider,minutes),codes[index],`${provider} encodes ${minutes}m using its documented interval value`);
+const strategyStats=enteredStrategyStats([
+ {...rTrade('strategy-1',10,'突破、回測'),market:'crypto'},
+ {...rTrade('strategy-2',10,'突破;趨勢'),market:'crypto'},
+ {...rTrade('strategy-3',10,'突破'),market:'us-stocks'},
+ {...rTrade('strategy-empty',10,''),market:'us-stocks'},
+]);
+assert.deepEqual(Object.fromEntries(strategyStats.overall.map(row=>[row.name,[row.count,row.percent]])),{'突破':[3,60],'回測':[1,20],'趨勢':[1,20]},'strategy percentages count normalized distinct entries, not trades or empty fields');
+assert.equal(strategyStats.markets.find(row=>row.market==='crypto').count,4);
+assert.equal(strategyStats.markets.find(row=>row.market==='us-stocks').rows[0].name,'突破');
 const excursion=calculateMaeMfe({...rTrade('mae-1',null),fees:1,entry:100,exit:105,quantity:2},[{high:110,low:95}]);
 assert.deepEqual({mae:excursion.mae,mfe:excursion.mfe,actual:excursion.actual},{mae:-10,mfe:20,actual:9},'MAE/MFE are excursions while actual result includes paid fees');
 const shortExcursion=calculateMaeMfe({...rTrade('mae-2',null),side:'short',entry:100,exit:95,quantity:2},[{high:104,low:90}]);
@@ -61,7 +75,7 @@ assert.notEqual(maeMfeFingerprint([{...fingerprintSource,multiplier:2}]),fingerp
 const concentration=profitConcentration([rTrade('p1',100),rTrade('p2',-50),rTrade('p3',50)]);
 assert.ok(Math.abs(concentration[0].share-100*2/3)<1e-10);
 assert.equal(concentration[1].share,100);
-assert.equal(concentration[2].share,100,'losses do not inflate cumulative share of positive profits');
+assert.equal(concentration[2].share,null,'losses stop the positive-profit concentration curve instead of holding it at 100%');
 const sequence=[
  {...rTrade('s1',-5),entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',positionValue:1000},
  {...rTrade('s2',-4),entryTime:'2026-09-21T10:00',exitTime:'2026-09-21T11:00',positionValue:1200},
@@ -81,4 +95,4 @@ const losingAfterStreak=[
 const afterLoss=lossRecoveryStats(losingAfterStreak)[0];
 assert.equal(afterLoss.postStreakSamples,1,'the next trade after a losing streak is sampled even when it also loses');
 assert.equal(afterLoss.postStreakIncreases,1);
-console.log('Passed trade-status R, MAE/MFE, concentration, recovery, holding-time, Sharpe and date-range checks.');
+console.log('Passed strategy preferences, multi-exchange candle intervals and boundaries, MAE/MFE, concentration, recovery, holding-time, Sharpe and date-range checks.');

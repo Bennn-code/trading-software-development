@@ -21,6 +21,15 @@ export function dateDaysAgo(days:number){const d=new Date();d.setDate(d.getDate(
 export function inEntryDateRange(trades:Trade[],start:string,end:string){return trades.filter(trade=>trade.entryTime.slice(0,10)>=start&&trade.entryTime.slice(0,10)<=end);}
 export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,1);return mistakeRules.map(([name,re])=>{const count=trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length;return{name,count,percent:count/total*100};}).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
+export type EnteredStrategyRow={name:string;count:number;percent:number};
+export type EnteredStrategyGroup={market:Trade['market'];count:number;rows:EnteredStrategyRow[]};
+function enteredStrategyNames(value:string){return [...new Set(value.split(/[、,，;；\n]+/).map(name=>name.trim().replace(/\s+/g,' ')).filter(Boolean))];}
+function strategyRows(counts:Map<string,number>):EnteredStrategyRow[]{const total=[...counts.values()].reduce((sum,count)=>sum+count,0);return [...counts].map(([name,count])=>({name,count,percent:total?count/total*100:0})).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));}
+export function enteredStrategyStats(trades:Trade[]){
+ const overall=new Map<string,number>(),markets=new Map<Trade['market'],Map<string,number>>();
+ for(const trade of trades){const names=enteredStrategyNames(trade.strategy||'');if(!names.length)continue;let market=markets.get(trade.market);if(!market){market=new Map();markets.set(trade.market,market);}for(const name of names){overall.set(name,(overall.get(name)||0)+1);market.set(name,(market.get(name)||0)+1);}}
+ return{overall:strategyRows(overall),markets:[...markets].map(([market,counts])=>({market,count:[...counts.values()].reduce((sum,value)=>sum+value,0),rows:strategyRows(counts)})).sort((a,b)=>a.market.localeCompare(b.market))};
+}
 function utcMillis(value:string,timezone='Asia/Taipei'){try{return Date.parse(`${convertWallTime(value,timezone,'UTC')}:00Z`);}catch{return NaN;}}
 export function durationMinutes(t:Trade){return Math.max(0,(utcMillis(t.exitTime,t.timezone)-utcMillis(t.entryTime,t.timezone))/60000);}
 export function averageDurationMinutes(trades:Trade[]){const values=trades.map(durationMinutes).filter(Number.isFinite);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}
@@ -49,19 +58,6 @@ export function averageReturnPercent(trades:Trade[]){
   return Number.isFinite(value)?[value]:[];
  });
  return returns.length?returns.reduce((sum,value)=>sum+value,0)/returns.length:null;
-}
-
-export type StrategyRStat={market:Trade['market'];currency:Trade['currency'];strategy:string;count:number;averageR:number;expectancyR:number;averageWinR:number|null;averageLossR:number|null;sampleSufficient:boolean};
-export function strategyRStats(trades:Trade[],minimumSample=5):StrategyRStat[]{
- const groups=new Map<string,{market:Trade['market'];currency:Trade['currency'];strategy:string;values:number[]}>();
- for(const trade of trades){const risk=trade.riskAmount,strategy=trade.strategy.trim();if(!strategy||!Number.isFinite(risk)||!risk||risk<=0)continue;const r=pnl(trade)/risk;if(!Number.isFinite(r))continue;const key=`${trade.market}|${trade.currency}|${strategy}`;const group=groups.get(key);if(group)group.values.push(r);else groups.set(key,{market:trade.market,currency:trade.currency,strategy,values:[r]});}
- return [...groups.values()].map(group=>{
-  const wins=group.values.filter(value=>value>0),losses=group.values.filter(value=>value<0),averageR=group.values.reduce((sum,value)=>sum+value,0)/group.values.length;
-  const averageWinR=wins.length?wins.reduce((sum,value)=>sum+value,0)/wins.length:null,averageLossR=losses.length?losses.reduce((sum,value)=>sum+value,0)/losses.length:null;
-  const winProbability=wins.length/group.values.length,lossProbability=losses.length/group.values.length;
-  const expectancyR=(averageWinR??0)*winProbability+(averageLossR??0)*lossProbability;
-  return{market:group.market,currency:group.currency,strategy:group.strategy,count:group.values.length,averageR,expectancyR,averageWinR,averageLossR,sampleSufficient:group.values.length>=minimumSample};
- }).sort((a,b)=>a.market.localeCompare(b.market)||a.currency.localeCompare(b.currency)||b.expectancyR-a.expectancyR);
 }
 
 export type LossRecoveryStat={market:Trade['market'];currency:Trade['currency'];count:number;maxLosingStreak:number;maxRecoveryMinutes:number|null;currentRecoveryMinutes:number|null;postStreakSamples:number;postStreakIncreases:number};
@@ -94,12 +90,41 @@ export type ProfitConcentrationPoint={index:number;trade:Trade;net:number;share:
 export function profitConcentration(trades:Trade[]):ProfitConcentrationPoint[]{
  const ordered=[...trades].map(trade=>({trade,net:pnl(trade)})).filter(item=>Number.isFinite(item.net)).sort((a,b)=>b.net-a.net||a.trade.exitTime.localeCompare(b.trade.exitTime));
  const positiveTotal=ordered.reduce((sum,item)=>sum+Math.max(0,item.net),0);let cumulative=0;
- return ordered.map((item,index)=>{cumulative+=Math.max(0,item.net);return{index:index+1,trade:item.trade,net:item.net,share:positiveTotal>0?cumulative/positiveTotal*100:null};});
+ return ordered.map((item,index)=>{if(item.net<=0)return{index:index+1,trade:item.trade,net:item.net,share:null};cumulative+=item.net;return{index:index+1,trade:item.trade,net:item.net,share:positiveTotal>0?cumulative/positiveTotal*100:null};});
 }
 
 export type CandleRange={high:number;low:number};
+export type MaeMfeProvider='bybit'|'bitget'|'okx'|'kucoin'|'bingx'|'mexc';
+export const maeMfeIntervals=[
+ {minutes:1,label:'1m'},
+ {minutes:5,label:'5m'},
+ {minutes:15,label:'15m'},
+ {minutes:60,label:'1h'},
+ {minutes:240,label:'4h'},
+] as const;
+const maeMfeProviderIntervalCodes:Record<MaeMfeProvider,Record<number,string>>={
+ bybit:{1:'1',5:'5',15:'15',60:'60',240:'240'},
+ bitget:{1:'1m',5:'5m',15:'15m',60:'1H',240:'4H'},
+ okx:{1:'1m',5:'5m',15:'15m',60:'1H',240:'4H'},
+ kucoin:{1:'60',5:'300',15:'900',60:'3600',240:'14400'},
+ bingx:{1:'1m',5:'5m',15:'15m',60:'1h',240:'4h'},
+ mexc:{1:'Min1',5:'Min5',15:'Min15',60:'Min60',240:'Hour4'},
+};
+export function maeMfeIntervalLabel(minutes:number){return maeMfeIntervals.find(interval=>interval.minutes===minutes)?.label??`${minutes}m`;}
+export function maeMfeProviderInterval(provider:MaeMfeProvider,minutes:number){return maeMfeProviderIntervalCodes[provider][minutes]??null;}
+export function chooseMaeMfeIntervalMinutes(durationMinutes:number,maxCandles:number){
+ const duration=Math.max(0,durationMinutes),capacity=Math.max(1,Math.floor(maxCandles));
+ return maeMfeIntervals.find(interval=>Math.ceil(duration/interval.minutes)+2<=capacity)?.minutes??maeMfeIntervals[maeMfeIntervals.length-1].minutes;
+}
+export type MaeMfeCandleWindow={start:number;end:number;step:number};
+export function maeMfeCandleWindow(entryMs:number,exitMs:number,intervalMinutes:number):MaeMfeCandleWindow|null{
+ if(!Number.isFinite(entryMs)||!Number.isFinite(exitMs)||!Number.isFinite(intervalMinutes)||exitMs<=entryMs||intervalMinutes<=0)return null;
+ const step=intervalMinutes*60_000;
+ return{start:Math.floor(entryMs/step)*step,end:Math.floor((exitMs-1)/step)*step,step};
+}
+export function maeMfeCandleInWindow(candleTime:number,window:MaeMfeCandleWindow){return Number.isFinite(candleTime)&&candleTime>=window.start&&candleTime<=window.end;}
 export function maeMfeFingerprint(trades:Trade[]){
- return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+ return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.mae,trade.mfe,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
 }
 export type MaeMfeTrade=Pick<Trade,'market'|'entry'|'exit'|'quantity'|'side'|'multiplier'>&Partial<Trade>;
 export function calculateMaeMfe(trade:MaeMfeTrade,candles:CandleRange[]){

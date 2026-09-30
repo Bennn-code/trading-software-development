@@ -11,6 +11,9 @@ export type Trade = {
   exchangeSource?: 'bybit' | 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc' | null;
   /** User-entered initial amount at risk, denominated in the trade currency. */
   riskAmount?: number | null;
+  /** Optional excursions in the trade currency; MAE is stored as a negative amount. */
+  mae?: number | null;
+  mfe?: number | null;
   feeMode?: 'paid' | 'rebate'; commission?: number | null; transactionTax?: number | null;
   exchangeFee?: number | null; clearingFee?: number | null; settlementFee?: number | null; regulatoryFee?: number | null;
   secFee?: number | null; finraFee?: number | null; futuresTax?: number | null;
@@ -37,7 +40,7 @@ export function stats(trades:Trade[]) {
     factor:losses.length?wins.reduce((s,v)=>s+v,0)/Math.abs(losses.reduce((s,v)=>s+v,0)):wins.length?Infinity:0 };
 }
 export function localTime(date = new Date(),timeZone?:string) {if(!timeZone&&typeof window!=='undefined')try{timeZone=localStorage.getItem('trade-timezone')||undefined}catch{};timeZone??='Asia/Taipei';const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date),get=(key:string)=>parts.find(p=>p.type===key)?.value||'';return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;}
-export function newTrade(preferredTimezone?:string):Trade {const timezone=preferredTimezone||(typeof window!=='undefined'?localStorage.getItem('trade-timezone')||'Asia/Taipei':'Asia/Taipei');return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',timezone,entryTime:localTime(new Date(),timezone),exitTime:localTime(new Date(),timezone),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',exchangeSource:null,riskAmount:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null};}
+export function newTrade(preferredTimezone?:string):Trade {const timezone=preferredTimezone||(typeof window!=='undefined'?localStorage.getItem('trade-timezone')||'Asia/Taipei':'Asia/Taipei');return {id:crypto.randomUUID(),market:'futures',symbol:'MNQ',side:'long',account:'主要帳戶',currency:'USD',timezone,entryTime:localTime(new Date(),timezone),exitTime:localTime(new Date(),timezone),entry:0,exit:0,quantity:1,multiplier:2,fees:null,funding:null,strategy:'',notes:'',imageId:null,netOverride:null,profitBasis:'gross',exchangeSource:null,riskAmount:null,mae:null,mfe:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null};}
 export function demoTrades():Trade[] {
   const month=localTime().slice(0,7);
   const rows:[number,string,'long'|'short',number,number,string][]=[

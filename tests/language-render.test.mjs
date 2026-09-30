@@ -50,7 +50,8 @@ assert.ok(account.includes('disabled=""'));
 
 const trade = { ...newTrade(), market: 'crypto', symbol: 'BTCUSDT', notes: '我的私人心得', strategy: '自己命名的策略', positionValue: 1000 };
 const fields = renderToStaticMarkup(<LanguageProvider initialLanguage="en" initialResources={englishResources}><TradeFields trade={trade} onChange={() => {}} /></LanguageProvider>);
-for (const label of ['Entry position value', 'Margin mode', 'Leverage', '我的私人心得', '自己命名的策略']) assert.ok(fields.includes(label), label);
+for (const label of ['Entry position value', 'Margin mode', 'Leverage', 'Maximum adverse excursion MAE', 'Maximum favorable excursion MFE', '我的私人心得', '自己命名的策略']) assert.ok(fields.includes(label), label);
+assert.ok(!fields.includes('Initial risk amount'), 'initial risk is no longer offered in manual trade entry');
 
 console.log('Rendered all four languages synchronously in the provider, verified the top-level favorites page, localized initial state, settings and trade form.');
 `;

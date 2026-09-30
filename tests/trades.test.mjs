@@ -37,6 +37,8 @@ assert.equal(positionValue({...t,positionValue:undefined}),1000);
 for(const [input,out] of [['+1000',1000],['-1000',-1000],['+1,000.25',1000.25],['0',0],['',null],['－1000',-1000]])assert.equal(parseSignedAmount(input),out);
 for(const input of ['+','--10','1,2','Infinity','1e3','NaN'])assert.ok(Number.isNaN(parseSignedAmount(input)));
 for(const strategy of [undefined,null,''])assert.equal(tradeSchema.parse({...t,strategy}).strategy,'');
+const manuallyMeasured=tradeSchema.parse({...t,mae:25,mfe:-12});assert.equal(manuallyMeasured.mae,-25,'adverse excursion is normalized to a negative amount');assert.equal(manuallyMeasured.mfe,12,'favorable excursion is normalized to a positive amount');
+const unmeasured=tradeSchema.parse({...t,mae:null,mfe:null});assert.equal(unmeasured.mae,null,'blank optional MAE remains unavailable, not zero');assert.equal(unmeasured.mfe,null,'blank optional MFE remains unavailable, not zero');
 assert.equal(tradeSchema.parse({...t,quantity:99,multiplier:20}).quantity,10,'server derives canonical quantity');
 assert.equal(tradeSchema.parse({...t,multiplier:20}).multiplier,1,'crypto ignores futures multiplier');
 const taxableStock=tradeSchema.parse({...newTrade(),market:'tw-stocks',symbol:'2330',currency:'TWD',entry:100,exit:110,quantity:100,transactionTax:-33});

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { convertWallTime } from '@/lib/display-currency';
-import { calculateMaeMfe } from '@/lib/trade-status';
+import { calculateMaeMfe, chooseMaeMfeIntervalMinutes, maeMfeCandleInWindow, maeMfeCandleWindow, maeMfeIntervalLabel, maeMfeProviderInterval, type MaeMfeProvider } from '@/lib/trade-status';
 import { ApiError, db, failure, identity, json, readJson } from '@/lib/server';
 import { enforceRateLimit } from '@/lib/security';
 
@@ -16,7 +16,7 @@ const tradeSchema = z.object({
   clearingFee:z.number().finite().nullable().optional(),settlementFee:z.number().finite().nullable().optional(),regulatoryFee:z.number().finite().nullable().optional(),secFee:z.number().finite().nullable().optional(),finraFee:z.number().finite().nullable().optional(),futuresTax:z.number().finite().nullable().optional(),
 });
 const inputSchema=z.object({trades:z.array(tradeSchema).min(1).max(3)});
-type Provider=z.infer<typeof providerSchema>;
+type Provider=MaeMfeProvider;
 type Candle={time:number;high:number;low:number};
 type ProviderConfig={host:string;path:string;limit:number};
 const configs:Record<Provider,ProviderConfig>={
@@ -78,14 +78,15 @@ function candleRows(provider:Provider,payload:unknown):Candle[]{
   });
 }
 
-async function fetchPage(provider:Provider,symbol:string,start:number,end:number):Promise<Candle[]>{
-  const config=configs[provider],params=new URLSearchParams();
-  if(provider==='bybit'){params.set('category','linear');params.set('symbol',symbol);params.set('interval','1');params.set('start',String(start));params.set('end',String(end));params.set('limit',String(config.limit));}
-  else if(provider==='bitget'){params.set('category','USDT-FUTURES');params.set('symbol',symbol);params.set('interval','1m');params.set('startTime',String(start));params.set('endTime',String(end));params.set('limit',String(config.limit));}
-  else if(provider==='okx'){params.set('instId',symbol);params.set('bar','1m');params.set('after',String(end+60_000));params.set('limit',String(config.limit));}
-  else if(provider==='kucoin'){params.set('symbol',symbol);params.set('granularity','60');params.set('from',String(start));params.set('to',String(end));}
-  else if(provider==='bingx'){params.set('symbol',symbol);params.set('interval','1m');params.set('startTime',String(start));params.set('endTime',String(end));params.set('limit',String(config.limit));}
-  else {params.set('interval','Min1');params.set('start',String(Math.floor(start/1000)));params.set('end',String(Math.floor(end/1000)));}
+async function fetchPage(provider:Provider,symbol:string,start:number,end:number,intervalMinutes:number):Promise<Candle[]>{
+  const config=configs[provider],params=new URLSearchParams(),step=intervalMinutes*60_000,endExclusive=end+step,code=maeMfeProviderInterval(provider,intervalMinutes);
+  if(!code)throw new ApiError('此交易所不支援所選 K 線週期。',500);
+  if(provider==='bybit'){params.set('category','linear');params.set('symbol',symbol);params.set('interval',code);params.set('start',String(start));params.set('end',String(endExclusive-1));params.set('limit',String(config.limit));}
+  else if(provider==='bitget'){params.set('category','USDT-FUTURES');params.set('symbol',symbol);params.set('interval',code);params.set('startTime',String(Math.max(0,start-1)));params.set('endTime',String(endExclusive));params.set('limit',String(config.limit));}
+  else if(provider==='okx'){params.set('instId',symbol);params.set('bar',code);params.set('after',String(endExclusive));params.set('limit',String(config.limit));}
+  else if(provider==='kucoin'){params.set('symbol',symbol);params.set('granularity',code);params.set('from',String(start));params.set('to',String(endExclusive));}
+  else if(provider==='bingx'){params.set('symbol',symbol);params.set('interval',code);params.set('startTime',String(start));params.set('endTime',String(endExclusive));params.set('limit',String(config.limit));}
+  else {params.set('interval',code);params.set('start',String(Math.floor(start/1000)));params.set('end',String(Math.floor((endExclusive-1)/1000)));}
   const url=`https://${config.host}${config.path}${provider==='mexc'?`/${encodeURIComponent(symbol)}`:''}?${params}`;
   const endpoint=new URL(url);if(endpoint.protocol!=='https:'||endpoint.hostname!==config.host||endpoint.pathname!==`${config.path}${provider==='mexc'?`/${encodeURIComponent(symbol)}`:''}`)throw new ApiError('市場資料查詢目標無效。',500);
   await reserveOutboundSlot(provider);
@@ -94,21 +95,23 @@ async function fetchPage(provider:Provider,symbol:string,start:number,end:number
   if(!response.ok)throw new ApiError('交易所暫時無法提供市場 K 線，請稍後再試。',502);
   const length=Number(response.headers.get('content-length')??0);if(length>1_500_000)throw new ApiError('市場 K 線回應過大，請縮短分析期間。',502);
   let payload:unknown;try{const text=await response.text();if(text.length>1_500_000)throw new Error();payload=JSON.parse(text);}catch{throw new ApiError('交易所回傳的市場 K 線格式無法辨識。',502);}
-  // Entry/exit inputs are minute precision. Include the entry candle and exclude
-  // the candle beginning at the exit minute so post-exit prices cannot skew MFE/MAE.
-  return candleRows(provider,payload).filter(candle=>candle.time>=start&&candle.time<end).sort((a,b)=>a.time-b.time);
+  // Include the bucket containing entry and exclude the bucket starting at exit.
+  // Coarser OHLC buckets can still contain prices from after the exact exit time.
+  const window=maeMfeCandleWindow(start,end+step,intervalMinutes)!;
+  return candleRows(provider,payload).filter(candle=>maeMfeCandleInWindow(candle.time,window)).sort((a,b)=>a.time-b.time);
 }
 
 async function candlesForTrade(provider:Provider,symbol:string,startMs:number,endMs:number){
-  const start=Math.floor(startMs/60_000)*60_000,end=Math.floor(endMs/60_000)*60_000,key=`${provider}|${symbol}|${start}|${end}`,cached=candleCache.get(key);
-  if(cached&&cached.expiresAt>Date.now())return cached.candles;
-  const config=configs[provider],pageMinutes=config.limit*3;
-  if(Math.floor((end-start)/60_000)+1>pageMinutes)return null;
+  const config=configs[provider],intervalMinutes=chooseMaeMfeIntervalMinutes((endMs-startMs)/60_000,config.limit*3),intervalLabel=maeMfeIntervalLabel(intervalMinutes);
+  const window=maeMfeCandleWindow(startMs,endMs,intervalMinutes);if(!window)return null;
+  const {start,end,step}=window,key=`${provider}|${symbol}|${intervalLabel}|${start}|${end}`,cached=candleCache.get(key);
+  if(cached&&cached.expiresAt>Date.now())return{candles:cached.candles,interval:intervalLabel};
+  if(Math.floor((end-start)/step)+1>config.limit*3)return null;
   const all:Candle[]=[];let pageStart=start,pages=0;
-  while(pageStart<=end){const pageEnd=Math.min(end,pageStart+(config.limit-1)*60_000);all.push(...await fetchPage(provider,symbol,pageStart,pageEnd));pages++;if(pages>3)throw new ApiError('市場 K 線頁數超出安全查詢上限，請縮短所選期間。',413);pageStart=pageEnd+60_000;}
+  while(pageStart<=end){const pageEnd=Math.min(end,pageStart+(config.limit-1)*step);all.push(...await fetchPage(provider,symbol,pageStart,pageEnd,intervalMinutes));pages++;if(pages>3)throw new ApiError('市場 K 線頁數超出安全查詢上限，請縮短所選期間。',413);pageStart=pageEnd+step;}
   const unique=[...new Map(all.map(candle=>[candle.time,candle])).values()];candleCache.set(key,{expiresAt:Date.now()+CACHE_TTL,candles:unique});
   if(candleCache.size>500)candleCache.delete(candleCache.keys().next().value!);
-  return unique;
+  return{candles:unique,interval:intervalLabel};
 }
 
 export async function POST(request:Request){
@@ -116,7 +119,7 @@ export async function POST(request:Request){
   const owner=await identity(request,true);
   await enforceRateLimit(request,{scope:'trade-status-mae-mfe',limit:60,ipLimit:240,windowSeconds:3600,subject:owner});
   const body=await readJson(request,12_000),parsed=inputSchema.safeParse(body);if(!parsed.success)throw new ApiError('每次分析最多選三筆有效的加密貨幣交易。');
-  const rows=[] as {id:string;provider:Provider;symbol:string;currency:string;entryTime:string;mae:number;mfe:number;actual:number;candleCount:number}[],skipped=[] as {id:string;reason:string}[];
+  const rows=[] as {id:string;provider:Provider;timeframe:string;market:'crypto';symbol:string;currency:string;entryTime:string;mae:number;mfe:number;actual:number;candleCount:number}[],skipped=[] as {id:string;reason:string}[];
   for(const source of parsed.data.trades){
    const provider=source.exchangeSource;
    if(!provider){skipped.push({id:source.id,reason:'尚未設定價格資料來源交易所。'});continue;}
@@ -125,10 +128,10 @@ export async function POST(request:Request){
    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start){skipped.push({id:source.id,reason:'進出場時間無效或相同；請先確認交易時間。'});continue;}
    const candles=await candlesForTrade(provider,source.symbol,start,end);
    if(candles===null){skipped.push({id:source.id,reason:'持倉時間超過該交易所本次安全查詢上限，未送出大量分頁請求。'});continue;}
-   if(!candles.length){skipped.push({id:source.id,reason:'交易所未回傳這段期間的一分鐘 K 線。'});continue;}
-   const stats=calculateMaeMfe(source,candles);if(!stats){skipped.push({id:source.id,reason:'交易資料或 K 線數值無效。'});continue;}
-   rows.push({id:source.id,provider,symbol:source.symbol,currency:source.currency,entryTime:source.entryTime,mae:stats.mae,mfe:stats.mfe,actual:stats.actual,candleCount:stats.candleCount});
+   if(!candles.candles.length){skipped.push({id:source.id,reason:'交易所未回傳這段期間的 K 線資料。'});continue;}
+   const stats=calculateMaeMfe(source,candles.candles);if(!stats){skipped.push({id:source.id,reason:'交易資料或 K 線數值無效。'});continue;}
+   rows.push({id:source.id,provider,timeframe:candles.interval,market:'crypto',symbol:source.symbol,currency:source.currency,entryTime:source.entryTime,mae:stats.mae,mfe:stats.mfe,actual:stats.actual,candleCount:stats.candleCount});
   }
-  return json({rows,skipped,interval:'1m'});
+  return json({rows,skipped});
  }catch(error){return failure(error);}
 }
