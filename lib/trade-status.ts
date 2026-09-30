@@ -1,4 +1,5 @@
 import { isFuturesMarket, pnl,type Trade } from './trades';
+import { convertWallTime } from './display-currency';
 
 export function bestDayShare(bestNet:number,dailyNetValues:number[]){
  const positiveDailyNet=dailyNetValues.reduce((sum,value)=>sum+Math.max(value,0),0);
@@ -20,7 +21,8 @@ export function dateDaysAgo(days:number){const d=new Date();d.setDate(d.getDate(
 export function inEntryDateRange(trades:Trade[],start:string,end:string){return trades.filter(trade=>trade.entryTime.slice(0,10)>=start&&trade.entryTime.slice(0,10)<=end);}
 export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,1);return mistakeRules.map(([name,re])=>{const count=trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length;return{name,count,percent:count/total*100};}).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
-export function durationMinutes(t:Trade){return Math.max(0,(new Date(t.exitTime).getTime()-new Date(t.entryTime).getTime())/60000);}
+function utcMillis(value:string,timezone='Asia/Taipei'){try{return Date.parse(`${convertWallTime(value,timezone,'UTC')}:00Z`);}catch{return NaN;}}
+export function durationMinutes(t:Trade){return Math.max(0,(utcMillis(t.exitTime,t.timezone)-utcMillis(t.entryTime,t.timezone))/60000);}
 export function averageDurationMinutes(trades:Trade[]){const values=trades.map(durationMinutes).filter(Number.isFinite);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}
 export function weekdayPnlStats(trades:Trade[]){
  const totals=new Map<number,number>();
@@ -47,4 +49,63 @@ export function averageReturnPercent(trades:Trade[]){
   return Number.isFinite(value)?[value]:[];
  });
  return returns.length?returns.reduce((sum,value)=>sum+value,0)/returns.length:null;
+}
+
+export type StrategyRStat={market:Trade['market'];currency:Trade['currency'];strategy:string;count:number;averageR:number;expectancyR:number;averageWinR:number|null;averageLossR:number|null;sampleSufficient:boolean};
+export function strategyRStats(trades:Trade[],minimumSample=5):StrategyRStat[]{
+ const groups=new Map<string,{market:Trade['market'];currency:Trade['currency'];strategy:string;values:number[]}>();
+ for(const trade of trades){const risk=trade.riskAmount,strategy=trade.strategy.trim();if(!strategy||!Number.isFinite(risk)||!risk||risk<=0)continue;const r=pnl(trade)/risk;if(!Number.isFinite(r))continue;const key=`${trade.market}|${trade.currency}|${strategy}`;const group=groups.get(key);if(group)group.values.push(r);else groups.set(key,{market:trade.market,currency:trade.currency,strategy,values:[r]});}
+ return [...groups.values()].map(group=>{
+  const wins=group.values.filter(value=>value>0),losses=group.values.filter(value=>value<0),averageR=group.values.reduce((sum,value)=>sum+value,0)/group.values.length;
+  const averageWinR=wins.length?wins.reduce((sum,value)=>sum+value,0)/wins.length:null,averageLossR=losses.length?losses.reduce((sum,value)=>sum+value,0)/losses.length:null;
+  const winProbability=wins.length/group.values.length,lossProbability=losses.length/group.values.length;
+  const expectancyR=(averageWinR??0)*winProbability+(averageLossR??0)*lossProbability;
+  return{market:group.market,currency:group.currency,strategy:group.strategy,count:group.values.length,averageR,expectancyR,averageWinR,averageLossR,sampleSufficient:group.values.length>=minimumSample};
+ }).sort((a,b)=>a.market.localeCompare(b.market)||a.currency.localeCompare(b.currency)||b.expectancyR-a.expectancyR);
+}
+
+export type LossRecoveryStat={market:Trade['market'];currency:Trade['currency'];count:number;maxLosingStreak:number;maxRecoveryMinutes:number|null;currentRecoveryMinutes:number|null;postStreakSamples:number;postStreakIncreases:number};
+function positionSize(trade:Trade){return Number.isFinite(trade.positionValue)&&trade.positionValue!>0?{value:trade.positionValue!,unit:'notional' as const}:Number.isFinite(trade.quantity)&&trade.quantity>0?{value:trade.quantity,unit:'quantity' as const}:null;}
+export function lossRecoveryStats(trades:Trade[]):LossRecoveryStat[]{
+ const groups=new Map<string,Trade[]>();
+ for(const trade of trades){const key=`${trade.market}|${trade.currency}`;groups.set(key,[...(groups.get(key)??[]),trade]);}
+ return [...groups.values()].map(rows=>{
+  rows.sort((a,b)=>utcMillis(a.exitTime,a.timezone)-utcMillis(b.exitTime,b.timezone)||utcMillis(a.entryTime,a.timezone)-utcMillis(b.entryTime,b.timezone)||(a.id??'').localeCompare(b.id??''));
+  let equity=0,peak=0,peakTime=rows.length?utcMillis(rows[0].entryTime,rows[0].timezone):0,streak=0,maxLosingStreak=0,drawdownStart:number|null=null,maxRecoveryMinutes:number|null=null,currentRecoveryMinutes:number|null=null;
+  for(const trade of rows){const value=pnl(trade),exit=utcMillis(trade.exitTime,trade.timezone);if(value<0){streak++;maxLosingStreak=Math.max(maxLosingStreak,streak);}else streak=0;equity+=value;
+   if(equity<peak&&drawdownStart===null)drawdownStart=peakTime;
+   if(equity>=peak){if(drawdownStart!==null&&Number.isFinite(exit)){const elapsed=Math.max(0,(exit-drawdownStart)/60000);maxRecoveryMinutes=maxRecoveryMinutes===null?elapsed:Math.max(maxRecoveryMinutes,elapsed);}peak=equity;peakTime=exit;drawdownStart=null;}
+  }
+  if(drawdownStart!==null&&rows.length){const last=utcMillis(rows[rows.length-1].exitTime,rows[rows.length-1].timezone);if(Number.isFinite(last))currentRecoveryMinutes=Math.max(0,(last-drawdownStart)/60000);}
+  const symbolGroups=new Map<string,Trade[]>();for(const trade of rows)symbolGroups.set(trade.symbol,[...(symbolGroups.get(trade.symbol)??[]),trade]);
+  let postStreakSamples=0,postStreakIncreases=0;
+  for(const symbolRows of symbolGroups.values()){
+   let losses:Trade[]=[];
+   for(const trade of symbolRows){
+    if(losses.length>=2){const prior=losses.map(positionSize).filter((size):size is NonNullable<typeof size>=>!!size);const next=positionSize(trade);if(next&&prior.length===losses.length&&prior.every(size=>size.unit===next.unit)){const avg=prior.reduce((sum,size)=>sum+size.value,0)/prior.length;postStreakSamples++;if(next.value>avg*1.05)postStreakIncreases++;}losses=[];}
+    if(pnl(trade)<0)losses.push(trade);else losses=[];
+   }
+  }
+  return{market:rows[0].market,currency:rows[0].currency,count:rows.length,maxLosingStreak,maxRecoveryMinutes,currentRecoveryMinutes,postStreakSamples,postStreakIncreases};
+ }).sort((a,b)=>a.market.localeCompare(b.market)||a.currency.localeCompare(b.currency));
+}
+
+export type ProfitConcentrationPoint={index:number;trade:Trade;net:number;share:number|null};
+export function profitConcentration(trades:Trade[]):ProfitConcentrationPoint[]{
+ const ordered=[...trades].map(trade=>({trade,net:pnl(trade)})).filter(item=>Number.isFinite(item.net)).sort((a,b)=>b.net-a.net||a.trade.exitTime.localeCompare(b.trade.exitTime));
+ const positiveTotal=ordered.reduce((sum,item)=>sum+Math.max(0,item.net),0);let cumulative=0;
+ return ordered.map((item,index)=>{cumulative+=Math.max(0,item.net);return{index:index+1,trade:item.trade,net:item.net,share:positiveTotal>0?cumulative/positiveTotal*100:null};});
+}
+
+export type CandleRange={high:number;low:number};
+export function maeMfeFingerprint(trades:Trade[]){
+ return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+}
+export type MaeMfeTrade=Pick<Trade,'market'|'entry'|'exit'|'quantity'|'side'|'multiplier'>&Partial<Trade>;
+export function calculateMaeMfe(trade:MaeMfeTrade,candles:CandleRange[]){
+ if(!candles.length||candles.some(candle=>!Number.isFinite(candle.high)||!Number.isFinite(candle.low)||candle.high<candle.low)||!Number.isFinite(trade.quantity)||trade.quantity<=0||!Number.isFinite(trade.entry)||!Number.isFinite(trade.exit))return null;
+ const high=Math.max(trade.entry,trade.exit,...candles.map(candle=>candle.high)),low=Math.min(trade.entry,trade.exit,...candles.map(candle=>candle.low)),quantity=(trade.market==='crypto'&&trade.positionValue!=null?(trade.entry>0?trade.positionValue/trade.entry:0):trade.quantity)*(isFuturesMarket(trade.market)?trade.multiplier:1);
+ const mae=Math.min(0,trade.side==='long'?(low-trade.entry)*quantity:(trade.entry-high)*quantity);
+ const mfe=Math.max(0,trade.side==='long'?(high-trade.entry)*quantity:(trade.entry-low)*quantity);
+ return{mae,mfe,actual:pnl(trade as Trade),candleCount:candles.length};
 }

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Target, TrendingUp, Users } from 'lucide-react';
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts';
 import { useI18n } from './language-provider';
 import ConvertedMoney from './converted-money';
 import InfoTooltip from '@/components/info-tooltip';
@@ -10,13 +10,20 @@ import { marketName, pnl, positionValue, type Trade } from '@/lib/trades';
 import { tradeStatusFavoriteDomId, tradeStatusFavoriteTitle } from '@/lib/trade-status-favorites';
 import { utcOffsetLabel, timezoneName } from '@/lib/preferences';
 import type { DateRange, ReportPeriod } from '@/lib/report-period';
-import { averageDurationMinutes, averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, holdingTimeBucket, holdingTimeLabel, inEntryDateRange, mistakeStats, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
+import { averageDurationMinutes, averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, holdingTimeBucket, holdingTimeLabel, inEntryDateRange, lossRecoveryStats, maeMfeFingerprint, mistakeStats, profitConcentration, sharpeRatio, strategyRStats, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
 
 type Community = { mistakes: { name: string; count: number; percent: number }[]; profit: { label: string; value: number; currency: string }[]; returns: { label: string; value: number }[]; sampleSize: number };
 type Summary = { overview: string; strategySummary: string; reflectionSummary: string; strengths: string[]; improvements: string[]; nextSteps: string[] };
 type TimeBucket = { position: number; label: string; count: number; winRate: number | null };
 type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; averageDuration: number | null; previousAverageDuration: number | null; averageWinDuration: number | null; averageLossDuration: number | null; bestWeekday: { weekday: number; net: number } | null; worstWeekday: { weekday: number; net: number } | null; sharpe: number | null; expectancy: number; expectancyPercent: number | null };
 type TimeProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; clock: TimeBucket[]; holding: TimeBucket[] };
+type MaeMfeRow = { id:string;provider:string;symbol:string;currency:string;mae:number;mfe:number;actual:number;candleCount:number;entryTime:string };
+type MaeMfeSkip = { id:string;reason:string };
+type MaeMfeAnalysis = { selectionKey:string;rows:MaeMfeRow[];skipped:MaeMfeSkip[];attempted:string[] };
+type StrategyRItem=ReturnType<typeof strategyRStats>[number];
+type RecoveryItem=ReturnType<typeof lossRecoveryStats>[number];
+type ConcentrationGroup={market:Trade['market'];currency:Trade['currency'];rows:ReturnType<typeof profitConcentration>};
+type StatusExchangeRates={rates:Record<string,number>;updatedAt:number};
 const fmt = (n: number) => (n > 0 ? '+' : '') + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const change = (current: number, previous: number) => previous === 0 ? null : (current - previous) / Math.abs(previous) * 100;
 const weekdays = ['週日','週一','週二','週三','週四','週五','週六'] as const;
@@ -35,6 +42,17 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
   const [summary, setSummary] = useState<Summary | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [maeMfeAnalysis,setMaeMfeAnalysis]=useState<MaeMfeAnalysis|null>(null);
+  const [maeMfeBusy,setMaeMfeBusy]=useState(false);
+  const [maeMfeError,setMaeMfeError]=useState('');
+  const [statusRates,setStatusRates]=useState<StatusExchangeRates|null>(null);
+
+  useEffect(()=>{
+    if(baseCurrency==='auto')return;
+    const controller=new AbortController();
+    fetch('/api/exchange-rates',{signal:controller.signal,cache:'no-store'}).then(async response=>response.ok?await response.json() as StatusExchangeRates:null).then(value=>{if(value&&value.rates&&typeof value.rates==='object')setStatusRates(value);}).catch(()=>{});
+    return()=>controller.abort();
+  },[baseCurrency]);
 
   useEffect(() => {
     if (favoritesOnly && !favoriteIds.includes('community')) return;
@@ -59,6 +77,11 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
   const timeSelected = useMemo(() => range.start && range.end
     ? inEntryDateRange(trades, range.start, range.end)
     : trades, [trades, range.start, range.end]);
+  const maeMfeSelectionKey=useMemo(()=>maeMfeFingerprint(selected),[selected]);
+  const currentMaeMfeAnalysis=maeMfeAnalysis?.selectionKey===maeMfeSelectionKey?maeMfeAnalysis:{selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[]};
+  const maeMfeEligible=selected.filter(trade=>trade.market==='crypto'&&!!trade.exchangeSource&&Number.isFinite(durationMinutes(trade))&&durationMinutes(trade)>0);
+  const attemptedMaeIds=new Set(currentMaeMfeAnalysis.attempted);
+  const maeMfePending=maeMfeEligible.filter(trade=>!attemptedMaeIds.has(trade.id)).slice(0,3);
 
   const data = useMemo(() => {
     const days = Math.max(1, Math.round((new Date(`${range.end}T00:00:00Z`).getTime() - new Date(`${range.start}T00:00:00Z`).getTime()) / 86400000) + 1);
@@ -154,7 +177,11 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     const wins = selected.filter(trade => pnl(trade) > 0).reduce((sum, trade) => sum + pnl(trade), 0);
     const losses = Math.abs(selected.filter(trade => pnl(trade) < 0).reduce((sum, trade) => sum + pnl(trade), 0));
     const score = Math.max(0, Math.min(100, Math.round(winRate(selected) * .45 + Math.min(40, (wins / (losses || 1)) * 20) + disciplineRate(selected) * .25)));
-    return { previous, mistakes, strategies, symbols, products, timeProducts, riskScore, score, leverage, bestDays };
+    const strategyReturns=strategyRStats(selected),recovery=lossRecoveryStats(selected);
+    const concentrationGroups=new Map<string,{market:Trade['market'];currency:Trade['currency'];rows:Trade[]}>();
+    for(const trade of selected){const key=`${trade.market}|${trade.currency}`,group=concentrationGroups.get(key);if(group)group.rows.push(trade);else concentrationGroups.set(key,{market:trade.market,currency:trade.currency,rows:[trade]});}
+    const concentration=[...concentrationGroups.values()].map(group=>({market:group.market,currency:group.currency,rows:profitConcentration(group.rows)}));
+    return { previous, mistakes, strategies, symbols, products, timeProducts, riskScore, score, leverage, bestDays, strategyReturns, recovery, concentration };
   }, [trades, selected, timeSelected, range.start, range.end]);
 
   const durationComparisons = data.products.filter(product => product.averageDuration !== null).map(product => ({
@@ -162,8 +189,11 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     value: product.previousAverageDuration === null ? null : change(product.averageDuration!, product.previousAverageDuration),
   }));
   const averagePnlChange = change(averagePnl(selected), averagePnl(data.previous));
-  const disciplineChange = change(disciplineRate(selected), disciplineRate(data.previous));
   const risk = data.riskScore < 34 ? '保守' : data.riskScore < 67 ? '平衡' : '激進';
+  const strategyReturnGroups=groupRows(data.strategyReturns,row=>`${row.market}|${row.currency}`);
+  const maeMfeGroups=groupRows(currentMaeMfeAnalysis.rows,row=>`${row.currency}|${row.provider}`);
+  const concentrationGroups:ConcentrationGroup[]=data.concentration;
+  const cryptoWithoutSource=selected.filter(trade=>trade.market==='crypto'&&!trade.exchangeSource).length;
   const summarySections: [string, string[]][] = [];
   if (summary?.strengths.length) summarySections.push([t('做得好的地方'), summary.strengths]);
   if (summary?.improvements.length) summarySections.push([t('可以改善'), summary.improvements]);
@@ -180,6 +210,32 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     finally { setSummaryBusy(false); }
   }
 
+  async function analyzeMaeMfeNextBatch(){
+    if(!maeMfePending.length||maeMfeBusy)return;
+    setMaeMfeBusy(true);setMaeMfeError('');
+    const batch=maeMfePending;
+    try{
+      const response=await fetch('/api/trade-status/mae-mfe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({trades:batch.map(trade=>({
+        id:trade.id,market:trade.market,currency:trade.currency,symbol:trade.symbol,side:trade.side,entryTime:trade.entryTime,exitTime:trade.exitTime,timezone:trade.timezone,
+        entry:trade.entry,exit:trade.exit,quantity:trade.quantity,multiplier:trade.multiplier,positionValue:trade.positionValue,exchangeSource:trade.exchangeSource,
+        netOverride:trade.netOverride,profitBasis:trade.profitBasis,fees:trade.fees,funding:trade.funding,feeMode:trade.feeMode,commission:trade.commission,transactionTax:trade.transactionTax,
+        exchangeFee:trade.exchangeFee,clearingFee:trade.clearingFee,settlementFee:trade.settlementFee,regulatoryFee:trade.regulatoryFee,secFee:trade.secFee,finraFee:trade.finraFee,futuresTax:trade.futuresTax,
+      }))})});
+      const result=await response.json() as {error?:string;rows?:MaeMfeRow[];skipped?:MaeMfeSkip[]};
+      if(!response.ok)throw new Error(result.error||t('MAE／MFE 分析失敗'));
+      const receivedRows=Array.isArray(result.rows)?result.rows:[],receivedSkipped=Array.isArray(result.skipped)?result.skipped:[];
+      setMaeMfeAnalysis(previous=>{
+        const current=previous?.selectionKey===maeMfeSelectionKey?previous:{selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[]};
+        const mergedRows=new Map([...current.rows,...receivedRows].map(row=>[row.id,row]));
+        const mergedSkipped=new Map([...current.skipped,...receivedSkipped].map(row=>[row.id,row]));
+        return{selectionKey:maeMfeSelectionKey,rows:[...mergedRows.values()],skipped:[...mergedSkipped.values()],attempted:[...new Set([...current.attempted,...batch.map(trade=>trade.id)])]};
+      });
+    }catch(error){setMaeMfeError(error instanceof Error?error.message:t('MAE／MFE 分析失敗'));}
+    finally{setMaeMfeBusy(false);}
+  }
+
+  function resetMaeMfeAnalysis(){setMaeMfeAnalysis({selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[]});setMaeMfeError('');}
+
   return <div className="status-grid">
     {(!favoritesOnly || favoriteIds.includes('score')) && <section id={tradeStatusFavoriteDomId('score')} className="panel status-card status-hero"><StatusHeader id="score" title={t('交易分數')} icon={null} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}/><div className="status-score-value"><strong>{data.score}</strong><small>/ 100</small></div><div className="score-gauge" style={{ '--score': `${data.score * 3.6}deg` } as React.CSSProperties}><i style={{ transform: `rotate(${data.score * 1.8 - 90}deg)` }}/></div><p>{t('依勝率、盈虧效率與紀律紀錄計算；只反映已保存資料。')}</p></section>}
 
@@ -195,8 +251,16 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     <Card favoriteId="symbols" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<TrendingUp/>} title={t('最常交易商品')}>{data.symbols.map(([symbol, count]) => <Row key={symbol} name={symbol} value={`${count} ${t('筆')}`}/>)}</Card>
     <Card favoriteId="mistakes" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Activity/>} title={t('常犯錯誤')}>{data.mistakes.length ? data.mistakes.slice(0, 6).map(item => <Progress key={item.name} name={t(item.name)} value={item.percent} suffix={`${item.percent.toFixed(0)}% · ${item.count} ${t('次')}`}/>) : <Empty text={t('尚未在心得中辨識到常見錯誤。')}/>}</Card>
     <Card favoriteId="time-preference" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Clock3/>} title={t('交易時間偏好')}><p>{t(timezoneName(timezone))} · {utcOffsetLabel(timezone)} · 24 {t('時制')} · {t('按進場日期歸屬期間')}</p>{data.timeProducts.map(product => <div className="preference-product" key={`${product.market}-${product.currency}`}><h3>{t(marketName(product.market))} · {product.currency}</h3>{product.clock.filter(item => item.count).sort((a, b) => b.count - a.count).slice(0, 3).map(item => <Row key={item.position} name={item.label} value={`${item.count} ${t('筆')}`}/>)}</div>)}</Card>
-    <Card favoriteId="strategies" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Target/>} title={t('交易策略偏好')} hidden={!data.strategies.length&&!favoriteIds.includes('strategies')}>{data.strategies.length ? data.strategies.map(item => <Progress key={item.name} name={t(item.name)} value={item.percent} suffix={item.percent.toFixed(0) + '%'}/>) : <Empty text={t('所選期間尚無交易。')}/>}</Card>
+    <Card favoriteId="strategies" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Target/>} title={t('交易策略偏好')}>{data.strategies.length ? data.strategies.map(item => <Progress key={item.name} name={t(item.name)} value={item.percent} suffix={item.percent.toFixed(0) + '%'}/>) : <Empty text={t('所選期間尚無交易。')}/>}</Card>
     <Card favoriteId="best-day" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('最好的一天佔本期獲利日總額')} hidden={!data.bestDays.length&&!favoriteIds.includes('best-day')} className="best-day-card">{data.bestDays.length ? data.bestDays.map(day => <div className="best-day-row" key={`${day.currency}-${day.date}`}><div className="best-day-top"><span>{day.date} · {day.currency}</span><strong className={day.net < 0 ? 'loss-value' : 'profit-value'}>{fmt(day.net)} {day.currency}<ConvertedMoney amount={day.net} currency={day.currency} baseCurrency={baseCurrency}/></strong></div><p className="best-day-share"><span>{t('佔本期獲利日淨損益')}</span><strong>{day.share === null ? '—' : `${day.share.toFixed(1)}%`}</strong></p><div className="best-day-symbols">{day.trades.map(trade => trade.symbol).filter((symbol, index, all) => all.indexOf(symbol) === index).map(symbol => <span key={symbol}>{symbol}</span>)}</div></div>) : <Empty text={t('所選期間尚無交易。')}/>}</Card>
+
+    <Card favoriteId="strategy-r" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Target/>} title={t('策略 R 與期望 R')} className="status-full analytics-card"><p>{t('R 以逐筆淨損益除以初始風險金額；平均 R 與期望 R 在同一完整樣本中數值相同。')} {t('只計有填寫策略與初始風險金額的交易。')}</p>{data.strategyReturns.length?<StrategyRCharts groups={strategyReturnGroups} t={t}/>:<Empty text={t('填寫交易策略與初始風險金額後，才會計算策略 R。')}/>}</Card>
+
+    <Card favoriteId="loss-recovery" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Activity/>} title={t('連續虧損與恢復狀況')} className="status-full analytics-card">{data.recovery.length?<RecoveryStats rows={data.recovery} t={t}/>:<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('連敗後部位變化只比較同一商品，且必須有完整部位大小；恢復時間依逐筆出場損益累積至先前資金高點估算。')}</p></Card>
+
+    <Card favoriteId="mae-mfe" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<TrendingUp/>} title={t('每筆交易 MAE／MFE 區間')} className="status-full analytics-card"><div className="analysis-action-row"><button type="button" className="outline-button" disabled={!signedIn||demo||maeMfeBusy||(!maeMfePending.length&&currentMaeMfeAnalysis.attempted.length===0)} aria-busy={maeMfeBusy} onClick={()=>maeMfePending.length?void analyzeMaeMfeNextBatch():resetMaeMfeAnalysis()}><RefreshCw size={15} className={maeMfeBusy?'animate-spin':''}/>{maeMfeBusy?t('分析中…'):maeMfePending.length?t('分析下一批交易（{0} 筆）',[maeMfePending.length]):t('重新分析')}</button><span>{t('已完成 {0}／{1} 筆',[currentMaeMfeAnalysis.attempted.length,maeMfeEligible.length])}</span></div><p>{t('使用交易所公開 1 分鐘 K 線估算價格路徑，顯示最大浮虧、最大浮盈與實際淨損益。OHLC 是整分鐘區間，可能包含進出場分鐘內未持倉時的價格；缺少成交的分鐘亦可能沒有 K 線。交易所可能限流或暫拒請求，系統會減速並停止重試。')}</p>{!signedIn||demo?<Empty text={t('登入並切換至我的紀錄後，才能查詢公開 K 線。')}/>:!maeMfeEligible.length?<Empty text={cryptoWithoutSource?t('加密貨幣交易尚未設定價格資料來源交易所；可在交易編輯欄位選擇來源。'):t('所選期間沒有可分析的加密貨幣交易。')}/>:<><MaeMfeCharts groups={maeMfeGroups} t={t} baseCurrency={baseCurrency} rates={statusRates}/>{currentMaeMfeAnalysis.skipped.length>0&&<details className="analysis-skipped"><summary>{t('有 {0} 筆交易無法計算',[currentMaeMfeAnalysis.skipped.length])}</summary>{currentMaeMfeAnalysis.skipped.map(item=><p key={item.id}>{selected.find(trade=>trade.id===item.id)?.symbol??item.id} · {t(item.reason)}</p>)}</details>}{maeMfeError&&<p role="alert" className="status-error">{t(maeMfeError)}</p>}</>}</Card>
+
+    <Card favoriteId="profit-concentration" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('損益變化與獲利集中度')} className="status-full analytics-card">{concentrationGroups.length?<ProfitConcentrationCharts groups={concentrationGroups} t={t} baseCurrency={baseCurrency} rates={statusRates}/>:<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('柱狀圖依單筆淨損益由高到低排列；累積占比線只累加獲利交易，並以全部獲利交易總額為 100%。')}</p></Card>
 
     {(!favoritesOnly || favoriteIds.includes('market-metrics') || favoriteIds.some(id => id.startsWith('market-stat:'))) && <section id={tradeStatusFavoriteDomId('market-metrics')} className="panel status-card status-full market-metrics-section"><StatusHeader id="market-metrics" title={t('各市場交易統計')} icon={<BarChart3/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}/><div className="market-metrics-grid">{data.products.map(product => { const id = `market-stat:${product.market}:${product.currency}`; if (favoritesOnly && !favoriteIds.includes('market-metrics') && !favoriteIds.includes(id)) return null; return <section id={tradeStatusFavoriteDomId(id)} className="market-metrics-card" key={id}><header><div className="market-metric-heading"><FavoriteStar active={favoriteIds.includes(id)} title={tradeStatusFavoriteTitle(id,t)} onToggle={()=>onToggleFavorite(id)}/><h3>{t(marketName(product.market))} · {product.currency}</h3></div><span>{product.count} {t('筆')}</span></header><div className="market-metric-grid">
       <Metric label={t('平均交易時間')} value={durationText(product.averageDuration,t)}/>
@@ -219,7 +283,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
       return <section id={tradeStatusFavoriteDomId(favoriteId)} className="time-chart-product" key={favoriteId}><header><div className="time-chart-heading"><FavoriteStar active={favoriteIds.includes(favoriteId)} title={tradeStatusFavoriteTitle(favoriteId,t)} onToggle={()=>onToggleFavorite(favoriteId)}/><h3>{t(marketName(product.market))} · {product.currency}</h3></div><span>{t('總交易筆數')}：{product.count}</span></header>{best && worst && <div className="best-worst"><span>{t('最高勝率')} · {best.label} <b>{best.winRate?.toFixed(1)}%</b></span><span>{t('最低勝率')} · {worst.label} <b>{worst.winRate?.toFixed(1)}%</b></span></div>}<div className="status-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={buckets} margin={{ top: 12, right: 18, bottom: 20, left: 16 }}><CartesianGrid strokeDasharray="1 6"/><XAxis dataKey="label" minTickGap={20} label={{ value: timeMode === 'clock' ? t('交易時間') : t('持倉時間'), position: 'insideBottom', offset: -8 }}/><YAxis width={48} domain={[0, 100]} tickFormatter={value => `${value}%`} label={{ value: t('勝率 (%)'), angle: -90, position: 'insideLeft', dx: -4 }}/><Tooltip cursor={{ stroke: 'var(--foreground)', strokeOpacity: 0.92, strokeDasharray: '3 3', strokeWidth: 2 }} isAnimationActive={false} content={({ active, payload, label }) => { const point = payload?.[0]?.payload as TimeBucket | undefined; if (!active || !point || point.winRate === null) return null; return <div className="status-tooltip"><span>{String(label)}</span><strong>{t('勝率')} · {point.winRate.toFixed(1)}%</strong><small>{t('交易筆數')} · {point.count}</small></div>; }}/><Line type="linear" dataKey="winRate" stroke="var(--foreground)" strokeWidth={2.2} dot={{ r: 2.5, strokeWidth: 1, fill: 'var(--background)' }} activeDot={{ r: 4, fill: 'var(--foreground)' }} connectNulls isAnimationActive={false}/></LineChart></ResponsiveContainer></div></section>;
     })}</div>{!data.timeProducts.length && <Empty text={t('所選期間尚無交易。')}/>}</section>}
 
-    <Card favoriteId="comparison" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('與前一個等長期間比較')}><Row name={t('平均損益')} value={percentChangeText(averagePnlChange)} className={percentChangeClass(averagePnlChange)}/>{durationComparisons.map(item=><Row key={item.name} name={item.name} value={percentChangeText(item.value)} className={percentChangeClass(item.value)}/>)}<Row name={t('紀律遵守')} value={percentChangeText(disciplineChange)} className={percentChangeClass(disciplineChange)}/></Card>
+    <Card favoriteId="comparison" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('與前一個等長期間比較')}><Row name={t('平均損益')} value={percentChangeText(averagePnlChange)} className={percentChangeClass(averagePnlChange)}/>{durationComparisons.map(item=><Row key={item.name} name={item.name} value={percentChangeText(item.value)} className={percentChangeClass(item.value)}/>)}</Card>
     <Card favoriteId="rules" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<CheckCircle2/>} title={t('所選期間遵守的規則')}>{data.strategies.slice(0, 3).map(rule => { const activeDays = Math.max(new Set(selected.map(trade => trade.exitTime.slice(0, 10))).size, 1); const days = new Set(selected.filter(trade => trade.strategy.includes(rule.name.split('／')[0]) || trade.notes.includes(rule.name.split('／')[0])).map(trade => trade.exitTime.slice(0, 10))).size; const rate = days / activeDays * 100; return <div className="rule-row" key={rule.name}><CheckCircle2 className={rate >= 80 ? 'checked' : ''}/><span>{t(rule.name)}</span><b>{rate.toFixed(0)}%</b></div>; })}{!data.strategies.length && <Empty text={t('先在策略與心得中記下規則，系統才會計算。')}/>}</Card>
   </div>;
 }
@@ -232,3 +296,27 @@ function Metric({label,value,detail,tone,detailTone}:{label:string;value:string;
 function Row({ name, value, className = '' }: { name: string; value: string; className?: string }) { return <div className="status-row"><span>{name}</span><b className={className}>{value}</b></div>; }
 function Progress({ name, value, suffix }: { name: string; value: number; suffix: string }) { return <div className="status-progress"><div><span title={name}>{name}</span><b>{suffix}</b></div><i><em style={{ width: `${Math.min(value, 100)}%` }}/></i></div>; }
 function Empty({ text }: { text: string }) { return <p className="status-empty">{text}</p>; }
+
+function groupRows<T>(rows:T[],keyOf:(row:T)=>string){const groups=new Map<string,T[]>();for(const row of rows){const key=keyOf(row);groups.set(key,[...(groups.get(key)??[]),row]);}return [...groups];}
+function rText(value:number){return `${value>0?'+':''}${value.toFixed(2)}R`;}
+function chartCurrency(source:string,target:string,rates:StatusExchangeRates|null){if(target==='auto'||target===source)return{factor:1,currency:source};const from=rates?.rates?.[source],to=rates?.rates?.[target],factor=Number(from)>0&&Number(to)>0?Number(to)/Number(from):NaN;return Number.isFinite(factor)&&factor>0?{factor,currency:target}:{factor:1,currency:source};}
+
+function StrategyRCharts({groups,t}:{groups:[string,StrategyRItem[]][];t:(text:string,values?:unknown[])=>string}){
+ return <div className="analytics-product-grid">{groups.map(([key,rows])=><section className="analytics-product" key={key}><header><strong>{t(marketName(rows[0].market))} · {rows[0].currency}</strong><span>{rows.reduce((sum,row)=>sum+row.count,0)} {t('筆')}</span></header><div className="status-chart analytics-bar-chart" style={{height:Math.max(210,rows.length*48)}}><ResponsiveContainer width="100%" height="100%"><BarChart data={rows} layout="vertical" margin={{top:8,right:58,bottom:16,left:14}}><CartesianGrid horizontal={false}/><XAxis type="number" tickFormatter={value=>`${Number(value).toFixed(1)}R`} domain={[dataMin=>Math.min(0,Number(dataMin)),dataMax=>Math.max(0,Number(dataMax))]}/><YAxis type="category" dataKey="strategy" width={190} tick={{fontSize:10}}/><ReferenceLine x={0} stroke="var(--muted-foreground)"/><Tooltip cursor={{fill:'color-mix(in srgb,var(--foreground) 5%,transparent)'}} isAnimationActive={false} content={({active,payload})=>{const row=payload?.[0]?.payload as StrategyRItem|undefined;if(!active||!row)return null;return <div className="status-tooltip"><strong>{row.strategy}</strong><span>{t('平均 R')} · {rText(row.averageR)}</span><span>{t('期望 R')} · {rText(row.expectancyR)}</span><small>{t('交易筆數')} · {row.count}</small>{!row.sampleSufficient&&<small className="sample-warning">{t('樣本不足，至少需要 {0} 筆',[5])}</small>}</div>;}}/><Bar dataKey="expectancyR" name={t('期望 R')} radius={[0,4,4,0]}>{rows.map(row=><Cell key={row.strategy} fill={row.expectancyR>=0?'var(--profit-color)':'var(--loss-color)'}/>)}<LabelList dataKey="count" position="right" formatter={value=>`${value} ${t('筆')}`} fill="var(--muted-foreground)" fontSize={10}/></Bar></BarChart></ResponsiveContainer></div><div className="strategy-r-counts">{rows.map(row=><div key={row.strategy}><span>{row.strategy}</span><b>{t('平均 R')} {rText(row.averageR)} · {t('期望 R')} {rText(row.expectancyR)} · {row.count} {t('筆')}</b>{!row.sampleSufficient&&<small className="sample-warning">{t('樣本不足，至少需要 {0} 筆',[5])}</small>}</div>)}</div></section>)}</div>;
+}
+
+function RecoveryStats({rows,t}:{rows:RecoveryItem[];t:(text:string,values?:unknown[])=>string}){
+ return <div className="analytics-product-grid">{rows.map(row=>{const increaseRate=row.postStreakSamples?row.postStreakIncreases/row.postStreakSamples*100:null;return <section className="analytics-product" key={`${row.market}-${row.currency}`}><header><strong>{t(marketName(row.market))} · {row.currency}</strong><span>{row.count} {t('筆')}</span></header><div className="recovery-metrics"><Metric label={t('最長連敗')} value={`${row.maxLosingStreak} ${t('筆')}`} tone={row.maxLosingStreak>=3?'loss':undefined}/><Metric label={t('最長回到資金前高')} value={durationText(row.maxRecoveryMinutes,t)}/><Metric label={t('目前回撤經過時間')} value={row.currentRecoveryMinutes===null?t('目前沒有未恢復回撤'):durationText(row.currentRecoveryMinutes,t)}/><Metric label={t('連敗後加大部位')} value={increaseRate===null?t('資料不足'):`${row.postStreakIncreases}/${row.postStreakSamples} · ${increaseRate.toFixed(1)}%`} detail={t('比較同商品、連敗後的下一筆交易')}/></div></section>;})}</div>;
+}
+
+function MaeMfeCharts({groups,t,baseCurrency,rates}:{groups:[string,MaeMfeRow[]][];t:(text:string,values?:unknown[])=>string;baseCurrency:string;rates:StatusExchangeRates|null}){
+ return <div className="analytics-product-grid">{groups.map(([key,rows])=>{
+  const ordered=[...rows].sort((a,b)=>a.entryTime.localeCompare(b.entryTime)),points=ordered.map((row,index)=>({...row,index:index+1})),display=chartCurrency(points[0]?.currency??key.split('|')[0],baseCurrency,rates);
+  const scatter=(field:'mae'|'mfe'|'actual')=>points.map(point=>({index:point.index,value:point[field]*display.factor,symbol:point.symbol,entryTime:point.entryTime,tradeId:point.id,currency:display.currency,originalCurrency:point.currency,candleCount:point.candleCount}));
+  return <section className="analytics-product" key={key}><header><strong>{key.split('|')[1]} · {display.currency}{display.currency!==key.split('|')[0]?` (${key.split('|')[0]})`:''}</strong><span>{rows.length} {t('筆')}</span></header><div className="status-chart analytics-scatter-chart"><ResponsiveContainer width="100%" height="100%"><ScatterChart margin={{top:12,right:18,bottom:24,left:15}}><CartesianGrid strokeDasharray="1 5"/><XAxis type="number" dataKey="index" name={t('交易序號')} domain={[0,Math.max(2,points.length+1)]} tickFormatter={value=>String(Math.round(Number(value)))} label={{value:t('交易序號（滑鼠移至點上查看商品與時間）'),position:'insideBottom',offset:-14}}/><YAxis type="number" dataKey="value" name={display.currency} tickFormatter={value=>fmt(Number(value))} label={{value:display.currency,angle:-90,position:'insideLeft',dx:-3}}/><ZAxis range={[48,48]}/><ReferenceLine y={0} stroke="var(--muted-foreground)"/><Tooltip cursor={{stroke:'var(--foreground)',strokeOpacity:.75,strokeDasharray:'3 3'}} isAnimationActive={false} content={({active,payload})=>{const point=payload?.[0]?.payload as ReturnType<typeof scatter>[number]|undefined;if(!active||!point)return null;const item=payload?.[0];return <div className="status-tooltip"><strong>{point.symbol} · {point.entryTime.replace('T',' ')}</strong><span>{String(item?.name??'')} · {fmt(Number(item?.value??point.value))} {point.currency}</span>{point.originalCurrency!==point.currency&&<small>{t('原幣別')} · {fmt(Number(item?.value??point.value)/display.factor)} {point.originalCurrency}</small>}<small>{t('本筆一分鐘K線數量')} · {point.candleCount}</small></div>;}}/><Legend/><Scatter name={t('最大浮虧 MAE')} data={scatter('mae')} dataKey="value" fill="var(--loss-color)"/><Scatter name={t('最大浮盈 MFE')} data={scatter('mfe')} dataKey="value" fill="var(--profit-color)"/><Scatter name={t('實際淨損益')} data={scatter('actual')} dataKey="value" fill="var(--foreground)"/></ScatterChart></ResponsiveContainer></div></section>;
+ })}</div>;
+}
+
+function ProfitConcentrationCharts({groups,t,baseCurrency,rates}:{groups:ConcentrationGroup[];t:(text:string,values?:unknown[])=>string;baseCurrency:string;rates:StatusExchangeRates|null}){
+ return <div className="analytics-product-grid">{groups.map(group=>{const display=chartCurrency(group.currency,baseCurrency,rates),chartRows=group.rows.map(row=>({...row,displayNet:row.net*display.factor}));return <section className="analytics-product" key={`${group.market}-${group.currency}`}><header><strong>{t(marketName(group.market))} · {display.currency}{display.currency!==group.currency?` (${group.currency})`:''}</strong><span>{group.rows.length} {t('筆')}</span></header><div className="status-chart analytics-concentration-chart"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartRows} margin={{top:12,right:14,bottom:22,left:10}}><CartesianGrid strokeDasharray="1 5"/><XAxis dataKey="index" minTickGap={28} tickFormatter={value=>String(value)} label={{value:t('單筆交易（按淨損益排序）'),position:'insideBottom',offset:-12}}/><YAxis yAxisId="pnl" tickFormatter={value=>fmt(Number(value))} label={{value:`${t('淨損益')} (${display.currency})`,angle:-90,position:'insideLeft',dx:-4}}/><YAxis yAxisId="share" orientation="right" domain={[0,100]} tickFormatter={value=>`${Number(value)}%`} label={{value:t('累積獲利占比'),angle:90,position:'insideRight',dx:3}}/><ReferenceLine y={0} yAxisId="pnl" stroke="var(--muted-foreground)"/><Tooltip cursor={{stroke:'var(--foreground)',strokeOpacity:.8,strokeDasharray:'3 3',strokeWidth:2}} isAnimationActive={false} content={({active,payload})=>{const row=payload?.find(item=>item.dataKey==='displayNet')?.payload as typeof chartRows[number]|undefined;if(!active||!row)return null;return <div className="status-tooltip"><strong>{row.trade.symbol} · {row.trade.exitTime.replace('T',' ')}</strong><span>{t('淨損益')} · {fmt(row.displayNet)} {display.currency}</span>{display.currency!==group.currency&&<small>{t('原幣別')} · {fmt(row.net)} {group.currency}</small>}<small>{t('累積獲利占比')} · {row.share===null?'—':`${row.share.toFixed(1)}%`}</small></div>;}}/><Legend/><Bar yAxisId="pnl" dataKey="displayNet" name={t('單筆淨損益')} radius={[3,3,0,0]}>{chartRows.map(row=><Cell key={row.index} fill={row.net>=0?'var(--profit-color)':'var(--loss-color)'}/>)}</Bar><Line yAxisId="share" type="linear" dataKey="share" name={t('累積獲利占比')} stroke="var(--foreground)" strokeWidth={2} dot={false} activeDot={{r:4}} connectNulls isAnimationActive={false}/></ComposedChart></ResponsiveContainer></div></section>;})}</div>;
+}

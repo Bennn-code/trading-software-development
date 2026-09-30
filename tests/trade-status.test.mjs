@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 fs.mkdirSync('work',{recursive:true});
+for(const name of ['trades','display-currency']){const dependency=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');fs.writeFileSync(`work/${name}.cjs`,dependency);}
 const source=fs.readFileSync('lib/trade-status.ts','utf8');
-const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');
+const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,lossRecoveryStats,maeMfeFingerprint,profitConcentration,sharpeRatio,strategyRStats,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -38,4 +39,46 @@ assert.equal(sharpeRatio([trade('2026-09-21T10:00',10)]),null,'a single trade is
 assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',-5)]),0.25,'expectancy return is the average per-trade return');
 assert.equal(averageReturnPercent([{...trade('2026-09-21T10:00',50,null),market:'futures',multiplier:10,quantity:1}]),5,'futures percentage includes the contract multiplier');
 assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10,0)]),null,'expectancy percentage is unavailable without a notional value');
-console.log('Passed holding-time, weekday P&L, Sharpe, profitable-day share and minute/hour bucket checks.');
+const rTrade=(id,netOverride,strategy='回測',riskAmount=10)=>({id,market:'crypto',currency:'USDT',exchangeSource:'bybit',symbol:'BTCUSDT',side:'long',entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',timezone:'Asia/Taipei',entry:100,exit:100,quantity:1,multiplier:1,positionValue:null,fees:null,funding:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null,feeMode:'paid',netOverride,profitBasis:'net',strategy,notes:'',riskAmount});
+const strategyR=strategyRStats([rTrade('r1',20),rTrade('r2',-5),rTrade('r3',0),rTrade('r4',100,'無初始風險',null)]);
+assert.equal(strategyR.length,1,'R is omitted when risk amount or strategy is missing');
+assert.equal(strategyR[0].averageR,.5);
+assert.equal(strategyR[0].expectancyR,.5,'expectancy R uses win-rate weighted average win/loss R');
+assert.equal(strategyR[0].averageWinR,2);
+assert.equal(strategyR[0].averageLossR,-.5);
+assert.equal(strategyR[0].count,3);
+assert.equal(strategyR[0].sampleSufficient,false,'small strategy samples are flagged');
+const excursion=calculateMaeMfe({...rTrade('mae-1',null),fees:1,entry:100,exit:105,quantity:2},[{high:110,low:95}]);
+assert.deepEqual({mae:excursion.mae,mfe:excursion.mfe,actual:excursion.actual},{mae:-10,mfe:20,actual:9},'MAE/MFE are excursions while actual result includes paid fees');
+const shortExcursion=calculateMaeMfe({...rTrade('mae-2',null),side:'short',entry:100,exit:95,quantity:2},[{high:104,low:90}]);
+assert.deepEqual({mae:shortExcursion.mae,mfe:shortExcursion.mfe},{mae:-8,mfe:20},'short-side adverse/favorable movement uses reversed signs');
+const positionValueExcursion=calculateMaeMfe({...rTrade('mae-3',null),positionValue:1000,entry:100,quantity:1},[{high:101,low:99}]);
+assert.deepEqual({mae:positionValueExcursion.mae,mfe:positionValueExcursion.mfe},{mae:-10,mfe:10},'crypto excursion size follows saved position value like crypto P&L');
+const fingerprintSource=rTrade('fingerprint',3),fingerprint=maeMfeFingerprint([fingerprintSource]);
+assert.notEqual(maeMfeFingerprint([{...fingerprintSource,side:'short'}]),fingerprint,'changing the trade side invalidates cached MAE/MFE');
+assert.notEqual(maeMfeFingerprint([{...fingerprintSource,timezone:'America/New_York'}]),fingerprint,'changing the trade timezone invalidates cached MAE/MFE');
+assert.notEqual(maeMfeFingerprint([{...fingerprintSource,multiplier:2}]),fingerprint,'changing the contract multiplier invalidates cached MAE/MFE');
+const concentration=profitConcentration([rTrade('p1',100),rTrade('p2',-50),rTrade('p3',50)]);
+assert.ok(Math.abs(concentration[0].share-100*2/3)<1e-10);
+assert.equal(concentration[1].share,100);
+assert.equal(concentration[2].share,100,'losses do not inflate cumulative share of positive profits');
+const sequence=[
+ {...rTrade('s1',-5),entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',positionValue:1000},
+ {...rTrade('s2',-4),entryTime:'2026-09-21T10:00',exitTime:'2026-09-21T11:00',positionValue:1200},
+ {...rTrade('s3',-1),entryTime:'2026-09-21T11:00',exitTime:'2026-09-21T12:00',positionValue:1100},
+ {...rTrade('s4',15),entryTime:'2026-09-21T12:00',exitTime:'2026-09-21T13:00',positionValue:1400},
+];
+const recovery=lossRecoveryStats(sequence)[0];
+assert.equal(recovery.maxLosingStreak,3);
+assert.equal(recovery.maxRecoveryMinutes,240,'equity recovery uses chronological realized P&L and local timezone');
+assert.equal(recovery.postStreakSamples,1);
+assert.equal(recovery.postStreakIncreases,0,'the first trade after two losses is compared to those prior trades, even if the loss streak continues');
+const losingAfterStreak=[
+ {...rTrade('l1',-2),entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T09:10',positionValue:1000},
+ {...rTrade('l2',-2),entryTime:'2026-09-21T09:10',exitTime:'2026-09-21T09:20',positionValue:1000},
+ {...rTrade('l3',-2),entryTime:'2026-09-21T09:20',exitTime:'2026-09-21T09:30',positionValue:1200},
+];
+const afterLoss=lossRecoveryStats(losingAfterStreak)[0];
+assert.equal(afterLoss.postStreakSamples,1,'the next trade after a losing streak is sampled even when it also loses');
+assert.equal(afterLoss.postStreakIncreases,1);
+console.log('Passed trade-status R, MAE/MFE, concentration, recovery, holding-time, Sharpe and date-range checks.');

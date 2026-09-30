@@ -13,7 +13,7 @@ export function Choice({label,value,options,onChange}:{label:string;value:string
 }
 const fmt=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
 type CostField='fees'|'commission'|'transactionTax'|'exchangeFee'|'clearingFee'|'settlementFee'|'regulatoryFee'|'secFee'|'finraFee'|'futuresTax';
-type NumberField='entry'|'exit'|'quantity'|'multiplier'|CostField;
+type NumberField='entry'|'exit'|'quantity'|'multiplier'|'riskAmount'|CostField;
 const stockMarkets=['us-stocks','tw-stocks','cn-stocks','hk-stocks'];
 
 export function CalculationSummary({trade:t}:{trade:Trade}) {
@@ -69,15 +69,18 @@ export default function TradeFields({trade:t,onChange,notes=true}:{trade:Trade;o
   <Choice label={tx('市場')} value={t.market} options={[["futures",tx('美股期貨')],["tw-index-futures",tx('台指期')],["crypto",tx('加密貨幣')],["us-stocks",tx('美股現貨')],["tw-stocks",tx('台股')],["cn-stocks",tx('A股')],["hk-stocks",tx('港股')]]} onChange={v=>{const next=v as Trade['market'],symbol=next==='tw-index-futures'?'TXF':next==='futures'?'MNQ':next==='crypto'?'BTCUSDT':t.symbol;onChange({...t,market:next,symbol,multiplier:isFuturesMarket(next)?multiplierForSymbol(symbol,next==='tw-index-futures'?200:2):1,currency:marketCurrencies[next],quantity:next==='crypto'?0:1,positionValue:null,leverage:null,marginMode:null,funding:null,fees:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null});}}/>
   <div className="form-field"><label htmlFor={`${uid}-symbol`}>{tx('商品代號')}</label><Input id={`${uid}-symbol`} required maxLength={30} value={t.symbol} placeholder={t.market==='tw-index-futures'?'TXF / MXF / TMF':'MNQ / BTCUSDT'} onChange={e=>{const symbol=e.target.value.toUpperCase();onChange({...t,symbol,multiplier:isFuturesMarket(t.market)?multiplierForSymbol(symbol,t.multiplier):1});}}/></div>
   <Choice label={tx('交易方向')} value={t.side} options={[["long",tx('做多 Long')],["short",tx('做空 Short')]]} onChange={v=>set('side',v as Trade['side'])}/>
-  <Choice label={tx('計價幣別')} value={t.currency} options={[["USD",tx('USD 美元')],["USDT","USDT"],["TWD",tx('TWD 新台幣')],["CNY",tx('CNY 人民幣')],["HKD",tx('HKD 港幣')]]} onChange={v=>set('currency',v as Trade['currency'])}/>
+  <Choice label={tx('計價幣別')} value={t.currency} options={[["USD",tx('USD 美元')],["USDT","USDT"],["TWD",tx('TWD 新台幣')],["CNY",tx('CNY 人民幣')],["HKD",tx('HKD 港幣')]]} onChange={v=>onChange({...t,currency:v as Trade['currency'],riskAmount:null})}/>
   <div className="form-field wide"><label htmlFor={`${uid}-account`}>{tx('帳戶名稱')}</label><Input id={`${uid}-account`} required maxLength={80} value={t.account} onChange={e=>set('account',e.target.value)} placeholder={tx('例如：Binance 主帳戶')}/></div>
   {(['entryTime','exitTime'] as const).map((key,i)=><div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{tx(i?'出場時間（{0}）':'進場時間（{0}）',[timezoneLabel])}</label><DateTime24 id={`${uid}-${key}`} label={i?tx('出場'):tx('進場')} value={t[key]} onChange={value=>set(key,value)}/></div>)}
   {numberField('entry',tx('平均進場價'))}{numberField('exit',tx('平均出場價'))}
   {isFuturesMarket(t.market)?<>{numberField('quantity',tx('口數'))}{numberField('multiplier',tx('每點乘數'))}</>:t.market==='crypto'?<>
    <div className="form-field wide"><label htmlFor={`${uid}-value`}>{tx('進場倉位金額（')}{t.currency}）</label><Input id={`${uid}-value`} required type="number" min="0" step="any" value={positionValue(t)||''} placeholder={tx('例如：1,000')} onChange={e=>{const value=e.target.value===''?null:Number(e.target.value);onChange({...t,positionValue:value,quantity:value!=null&&t.entry>0?value/t.entry:0,multiplier:1});}}/></div>
    <Choice label={tx('保證金模式')} value={t.marginMode??'unknown'} options={[["unknown",tx('尚未填寫')],["cross",tx('全倉')],["isolated",tx('逐倉')]]} onChange={v=>set('marginMode',v==='unknown'?null:v as Trade['marginMode'])}/>
+   <Choice label={tx('價格資料來源交易所（選填）')} value={t.exchangeSource??'none'} options={[["none",tx('未設定')],["bybit","Bybit"],["bitget","Bitget"],["okx","OKX"],["kucoin","KuCoin"],["bingx","BingX"],["mexc","MEXC"]]} onChange={v=>set('exchangeSource',v==='none'?null:v as NonNullable<Trade['exchangeSource']>)}/>
    <div className="form-field"><label htmlFor={`${uid}-leverage`}>{tx('槓桿倍數')}</label><Input id={`${uid}-leverage`} type="number" min="1" max="1000" step="any" value={t.leverage??''} placeholder={tx('例如：10')} onChange={e=>set('leverage',e.target.value===''?null:Number(e.target.value))}/></div>
   </>:numberField('quantity',tx('股數'))}
+  <div className="form-field"><label htmlFor={`${uid}-riskAmount`}>{tx('初始風險金額（{0}，選填）',[t.currency])}</label><Input id={`${uid}-riskAmount`} type="number" min="0" step="any" value={t.riskAmount??''} placeholder={tx('例如：100')} onChange={e=>set('riskAmount',e.target.value===''?null:Math.abs(Number(e.target.value)))}/></div>
+  <p className="field-hint">{tx('以淨損益 ÷ 進場前設定的初始風險金額計算 R；沒有記錄初始風險時不計入。')}</p>
   <div className="form-field wide cost-section-heading"><h4>{tx('交易規費明細')}</h4></div>
   {feeFields.map(({key,label})=>numberField(key,label))}
   <Choice label={tx('其他交易費方向')} value={t.feeMode??'paid'} options={[["paid",tx('支付其他費用（扣除）')],["rebate",tx('收到返佣（加回）')]]} onChange={v=>set('feeMode',v as Trade['feeMode'])}/>

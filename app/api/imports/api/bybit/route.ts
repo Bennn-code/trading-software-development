@@ -132,7 +132,7 @@ export async function POST(request: Request) {
     const profileScope = `${owner}:${profileId}`;
     const trades = (await Promise.all(sortedRows.map(row => category === 'option'
       ? mapBybitClosedOption(row as BybitClosedOption, profileScope, timezone)
-      : mapBybitClosedPnl(row as BybitClosedPnl, profileScope, timezone)))).filter((trade) => trade !== null);
+      : mapBybitClosedPnl(row as BybitClosedPnl, profileScope, timezone)))).filter((trade) => trade !== null).map(trade => ({ ...trade, exchangeSource: 'bybit' as const }));
     await recordSecurityEvent(request, 'api_trade_imported', owner, { provider: category === 'option' ? 'bybit-options' : 'bybit-linear', count: trades.length, startDate, endDate });
     const warnings = category === 'option'
       ? ['目前 Bybit 直連只匯入 USDT 選擇權已平倉紀錄；totalPnl 是交易所回傳的結算損益，手續費只作明細顯示，不會重複扣除。未平倉、現貨及其他合約類型不在此匯入範圍。']
