@@ -20,11 +20,6 @@ export function dateDaysAgo(days:number){const d=new Date();d.setDate(d.getDate(
 export function inEntryDateRange(trades:Trade[],start:string,end:string){return trades.filter(trade=>trade.entryTime.slice(0,10)>=start&&trade.entryTime.slice(0,10)<=end);}
 export function mistakeStats(trades:Trade[]){const total=Math.max(trades.length,1);return mistakeRules.map(([name,re])=>{const count=trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length;return{name,count,percent:count/total*100};}).filter(x=>x.count).sort((a,b)=>b.count-a.count);}
 export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([name,re])=>({name,count:trades.filter(t=>re.test(`${t.strategy} ${t.notes}`)).length})).filter(x=>x.count),total=hits.reduce((s,x)=>s+x.count,0);return hits.map(x=>({...x,percent:total?x.count/total*100:0})).sort((a,b)=>b.count-a.count);}
-export function strategyUsageByMarket(trades:Trade[]){
- const summarize=(rows:Trade[])=>{const counts=new Map<string,{name:string;count:number}>();for(const trade of rows){const name=trade.strategy.trim().replace(/\s+/g,' ');if(!name)continue;const key=name.toLowerCase();const current=counts.get(key);counts.set(key,{name:current?.name??name,count:(current?.count??0)+1});}const ranked=[...counts.values()].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));const total=ranked.reduce((sum,item)=>sum+item.count,0);let allocated=0;const strategies=ranked.map((item,index)=>{const percent=index===ranked.length-1?100-allocated:item.count/total*100;allocated+=percent;return{...item,percent};});return{tradeCount:total,strategies};};
- const byMarket=new Map<Trade['market'],Trade[]>();for(const trade of trades){const rows=byMarket.get(trade.market)??[];rows.push(trade);byMarket.set(trade.market,rows);}
- return{total:summarize(trades),markets:[...byMarket].map(([market,rows])=>({market,...summarize(rows)})).filter(group=>group.tradeCount>0)};
-}
 export function durationMinutes(t:Trade){return Math.max(0,(new Date(t.exitTime).getTime()-new Date(t.entryTime).getTime())/60000);}
 export function averageDurationMinutes(trades:Trade[]){const values=trades.map(durationMinutes).filter(Number.isFinite);return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;}
 export function weekdayPnlStats(trades:Trade[]){

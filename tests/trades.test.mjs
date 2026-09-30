@@ -5,14 +5,14 @@ import { createRequire } from 'node:module';
 fs.mkdirSync('work',{recursive:true});
 const require=createRequire(new URL('../work/',import.meta.url));
 for(const name of ['trades','validation','display-currency','screenshot-import','vision','trade-duplicates','periods','report-period','reviews']){const code=ts.transpileModule(fs.readFileSync(`lib/${name}.ts`,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./periods"','"./periods.cjs"').replaceAll('"./report-period"','"./report-period.cjs"').replaceAll('"./screenshot-import"','"./screenshot-import.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');fs.writeFileSync(`work/${name}.cjs`,code);}
-const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade,marketCurrencies,multiplierForSymbol,feeAmountForDisplay}=require('./trades.cjs');
+const {pnl,initialMargin,positionValue,parseSignedAmount,newTrade,marketCurrencies,multiplierForSymbol,feeAmountForDisplay,feeAmountText}=require('./trades.cjs');
 const {tradeSchema,tradeIssueMessage}=require('./validation.cjs');
 const {normalizeRow,weightedPrice,stableImportId}=require('./screenshot-import.cjs');
 const {extractScreenshot}=require('./vision.cjs');
 const {findTradeMatches}=require('./trade-duplicates.cjs');
 const {reviewSaveSelection}=require('./reviews.cjs');
 const t={...newTrade(),profitBasis:'net',market:'crypto',symbol:'BTCUSDT',currency:'USDT',entry:100,exit:110,quantity:10,multiplier:1,positionValue:1000,leverage:10,marginMode:'isolated',fees:2,funding:3};
-assert.equal(initialMargin(t),100);assert.equal(pnl(t),95);assert.equal(feeAmountForDisplay(2,'paid'),2);assert.equal(feeAmountForDisplay(2,'rebate'),-2);assert.equal(feeAmountForDisplay(2,'funding'),2);assert.equal(feeAmountForDisplay(-2,'funding'),-2);
+assert.equal(initialMargin(t),100);assert.equal(pnl(t),95);assert.equal(feeAmountForDisplay(2,'paid'),-2);assert.equal(feeAmountForDisplay(-2,'paid'),-2);assert.equal(feeAmountForDisplay(2,'rebate'),2);assert.equal(feeAmountForDisplay(-2,'rebate'),2);assert.equal(feeAmountForDisplay(2,'funding'),-2);assert.equal(feeAmountForDisplay(-2,'funding'),2);assert.equal(feeAmountText(-2),'−2');assert.equal(feeAmountText(2),'+2');assert.equal(feeAmountText(0),'0');
 assert.equal(pnl({...t,leverage:20}),95,'leverage must not multiply P&L twice');
 assert.equal(initialMargin({...t,leverage:20}),50);
 assert.equal(initialMargin({...t,leverage:null}),null,'unknown leverage must not assume');

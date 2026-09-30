@@ -8,7 +8,7 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,sharpeRatio,strategyUsageByMarket,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -38,10 +38,4 @@ assert.equal(sharpeRatio([trade('2026-09-21T10:00',10)]),null,'a single trade is
 assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10),trade('2026-09-22T11:00',-5)]),0.25,'expectancy return is the average per-trade return');
 assert.equal(averageReturnPercent([{...trade('2026-09-21T10:00',50,null),market:'futures',multiplier:10,quantity:1}]),5,'futures percentage includes the contract multiplier');
 assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10,0)]),null,'expectancy percentage is unavailable without a notional value');
-const usageTrade=(market,strategy)=>({market,strategy,notes:'ignored for strategy usage'});
-const usage=strategyUsageByMarket([usageTrade('crypto','趨勢突破與停損'),usageTrade('crypto','區間反轉'),usageTrade('crypto',''),usageTrade('futures','等待訊號確認')]);
-assert.equal(usage.total.tradeCount,3,'blank strategy fields do not dilute strategy usage');
-assert.equal(usage.total.strategies.reduce((sum,item)=>sum+item.percent,0),100,'each entered strategy is assigned to one category');
-assert.deepEqual(usage.markets.map(group=>[group.market,group.tradeCount]),[['crypto',2],['futures',1]],'strategy usage is calculated independently by market');
-assert.deepEqual(usage.markets.find(group=>group.market==='crypto').strategies.map(item=>item.name).sort(),['區間反轉','趨勢突破與停損'].sort(),'strategy usage displays the exact entered strategy texts, not generic categories or freeform trade notes');
 console.log('Passed holding-time, weekday P&L, Sharpe, profitable-day share and minute/hour bucket checks.');
