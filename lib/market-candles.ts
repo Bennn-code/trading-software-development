@@ -9,8 +9,13 @@ export type PriceCandle = { time: number; high: number; low: number; end?: numbe
 type Context = { fetch: typeof fetch; reserve: (provider: QuoteProvider) => Promise<void>; requests: number; maxRequests: number };
 export type CandleResult = { provider: string; timeframe: string; candles: PriceCandle[]; referenceSymbol: string; productType: string };
 export class QuoteError extends Error {
-  constructor(message: string, public stop = false) { super(message); }
+  constructor(message: string, public stop = false, public retryable = false) { super(message); }
 }
+export type CryptoCursor = { providerIndex: number; intervalIndex: number };
+export class QuoteBudgetError extends QuoteError {
+  constructor(public cursor?: CryptoCursor) { super('本次行情查詢額度已用完，交易仍在佇列中，將接續查詢。'); }
+}
+class InstrumentUnavailable extends QuoteError {}
 const intervals = [1, 5, 15, 30, 60, 240, 1440];
 const cryptoOrder: CryptoVenue[] = ['binance', 'okx', 'bybit', 'bingx'];
 const minute = 60_000;
@@ -86,21 +91,27 @@ async function request(ctx: Context, provider: QuoteProvider, url: URL, headers:
     : provider === 'twelve-data' ? url.hostname === 'api.twelvedata.com' && url.pathname === '/time_series'
     : url.hostname === 'hist.databento.com' && url.pathname === '/v0/timeseries.get_range';
   if (!allowed || url.protocol !== 'https:' || url.port || url.username || url.password || (!!body !== (provider === 'databento'))) throw new QuoteError('行情查詢端點不在唯讀白名單內。', true);
-  if (++ctx.requests > ctx.maxRequests) throw new QuoteError('本次行情查詢已達安全上限，請稍後分析下一批。', true);
+  if (ctx.requests >= ctx.maxRequests) throw new QuoteBudgetError();
+  ctx.requests++;
   await ctx.reserve(provider);
   let response: Response;
   try {
     response = await ctx.fetch(url, { method: body ? 'POST' : 'GET', headers: { accept: 'application/json', ...headers, ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, ...(body ? { body: body.toString() } : {}), cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
-  } catch { throw new QuoteError('市場行情連線失敗或逾時，請稍後再試。'); }
+  } catch { throw new QuoteError('市場行情連線失敗或逾時，請稍後再試。', false, true); }
   // Do not route around authentication, IP bans, or provider throttling.
   if ([401, 403, 418, 429].includes(response.status)) throw new QuoteError('行情供應商拒絕授權或限制查詢；已停止本次請求，請檢查金鑰、方案或稍後再試。', true);
+  if (response.status === 400 && provider === 'binance') {
+    const data = parseJson(await readBoundedText(response, 16_000));
+    if (data && !Array.isArray(data) && String(data.code) === '-1121') throw new InstrumentUnavailable('此來源沒有相同商品。');
+    return null;
+  }
   if ([400, 404, 422].includes(response.status)) return null;
-  if (!response.ok) throw new QuoteError('行情供應商暫時無法提供資料。');
+  if (!response.ok) throw new QuoteError('行情供應商暫時無法提供資料。', false, true);
   try { return await readBoundedText(response, 1_500_000); } catch { throw new QuoteError('行情回應過大或格式無效，請縮短分析期間。', true); }
 }
 function parseJson(text: string | null): Record<string, unknown> | unknown[] | null {
   if (text === null) return null;
-  try { return JSON.parse(text); } catch { throw new QuoteError('行情回應格式無法辨識。'); }
+  try { return JSON.parse(text); } catch { throw new QuoteError('行情回應格式無法辨識。', false, true); }
 }
 
 async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, product: 'spot' | 'perpetual', start: number, end: number, minutes: number, limit: number) {
@@ -122,10 +133,14 @@ async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, pro
   const payload = parseJson(await request(ctx, provider, new URL(`https://${host}${path}?${params}`)));
   if (!payload) return [];
   let rows: unknown[] = [];
-  if (provider === 'binance') rows = Array.isArray(payload) ? payload : [];
+  if (provider === 'binance') {
+    if (!Array.isArray(payload) && String(payload.code) === '-1121') throw new InstrumentUnavailable('此來源沒有相同商品。');
+    rows = Array.isArray(payload) ? payload : [];
+  }
   else {
     const record = payload as Record<string, unknown>, status = String(provider === 'bybit' ? record.retCode : record.code);
     if (['10006', '10009', '10010', '10003', '10004', '50011', '50040'].includes(status)) throw new QuoteError('行情供應商限制查詢；已停止本次請求。', true);
+    if (provider === 'okx' && status === '51001' || provider === 'bybit' && status === '10029') throw new InstrumentUnavailable('此來源沒有相同商品。');
     if (status !== '0') return [];
     rows = provider === 'bybit' ? ((record.result as { list?: unknown[] })?.list ?? []) : Array.isArray(record.data) ? record.data : [];
   }
@@ -137,18 +152,23 @@ async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, pro
   }).filter(c => c.time >= start && c.time < end);
 }
 
-async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: number): Promise<CandleResult | null> {
+async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: number, cursor?: CryptoCursor): Promise<CandleResult | null> {
   const pair = cryptoPair(trade);
   if (!pair) throw new QuoteError('請確認加密商品是 USDT 現貨或永續合約，並填寫商品類型；不會用不同產品的價格代替。');
-  for (const provider of cryptoOrder) {
+  for (let providerIndex = cursor?.providerIndex ?? 0; providerIndex < cryptoOrder.length; providerIndex++) {
+    const provider = cryptoOrder[providerIndex];
     const limit = provider === 'okx' ? 300 : provider === 'binance' && pair.product === 'perpetual' ? 1500 : provider === 'bingx' ? 1440 : 1000;
-    for (const minutes of intervals) {
+    for (let intervalIndex = providerIndex === cursor?.providerIndex ? cursor.intervalIndex : 0; intervalIndex < intervals.length; intervalIndex++) {
+      const minutes = intervals[intervalIndex];
       const step = minutes * minute, first = Math.floor(start / step) * step, last = Math.floor((end - 1) / step) * step;
       const count = Math.floor((last - first) / step) + 1;
       if (count > limit * 3) continue;
       const cacheKey = `${provider}|${pair.product}|${pair.base}|${minutes}|${first}|${last}`;
       const cached = publicCache.get(cacheKey);
       if (cached && cached.until > Date.now()) return cached.result;
+      // Reserve room for this bounded interval so a continuation never discards
+      // partially fetched pages. Each fresh request still has the same 32-call cap.
+      if (ctx.maxRequests - ctx.requests < Math.ceil(count / limit)) throw new QuoteBudgetError({ providerIndex, intervalIndex });
       let all: PriceCandle[] = [];
       try {
         for (let page = first; page <= last; page += limit * step) {
@@ -156,7 +176,13 @@ async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: num
           if (!values.length) { all = []; break; }
           all.push(...values);
         }
-      } catch (error) { if (error instanceof QuoteError && error.stop) throw error; continue; }
+      } catch (error) {
+        if (error instanceof QuoteBudgetError) throw new QuoteBudgetError({ providerIndex, intervalIndex });
+        if (error instanceof InstrumentUnavailable) break;
+        if (error instanceof QuoteError && error.stop) throw error;
+        if (error instanceof QuoteError) throw error; // Do not disguise transport failures as missing history.
+        throw error;
+      }
       all = unique(all);
       // Reject partial old history and missing buckets instead of silently understating excursions.
       if (all.length !== count || all[0].time !== first || all.at(-1)?.time !== last) continue;
@@ -265,11 +291,12 @@ async function databentoCandles(ctx: Context, trade: Trade, key: string, start: 
   return null;
 }
 
-export async function historicalCandles(trade: Trade, keys: QuoteKeys, context: Context): Promise<CandleResult | null> {
+export async function historicalCandles(trade: Trade, keys: QuoteKeys, context: Context, cursor?: CryptoCursor): Promise<CandleResult | null> {
   const start = utcTradeTime(trade.entryTime, trade.timezone), end = utcTradeTime(trade.exitTime, trade.timezone);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new QuoteError('進出場時間無效或相同；請先確認交易時間。');
+  if (end > Date.now()) throw new QuoteError('出場時間在未來，歷史行情尚未產生；請確認交易日期與時區。');
   if (!quoteKeyForMarket(trade.market, keys)) throw new QuoteError('此市場需要行情金鑰與對應資料授權；請先設定本次行情金鑰。');
-  if (trade.market === 'crypto') return cryptoCandles(context, trade, start, end);
+  if (trade.market === 'crypto') return cryptoCandles(context, trade, start, end, cursor);
   if (trade.market === 'tw-stocks' || trade.market === 'tw-index-futures') return fugleCandles(context, trade, keys.fugle!, start, end);
   if (trade.market === 'futures') return databentoCandles(context, trade, keys.databento!, start, end);
   return twelveCandles(context, trade, keys.twelveData!, start, end);

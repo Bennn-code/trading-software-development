@@ -1,0 +1,20 @@
+import fs from 'node:fs';
+import ts from 'typescript';
+import assert from 'node:assert/strict';
+const compiled=ts.transpileModule(fs.readFileSync('lib/mae-mfe-queue.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const module={exports:{}};new Function('module','exports',compiled)(module,module.exports);
+const {mergeMaeMfeBatch}=module.exports;
+const empty={rows:[],skipped:[],attempted:[],resume:{}};
+const partial=mergeMaeMfeBatch(empty,['a','b','c'],{rows:[{id:'a',mae:-1}],skipped:[],completed:['a'],deferred:[{id:'b',resume:{providerIndex:2,intervalIndex:4}},{id:'c'}],stopped:false});
+assert.deepEqual(partial.attempted,['a']);assert.equal(partial.resume.b.providerIndex,2);
+assert.deepEqual(['a','b','c'].filter(id=>!partial.attempted.includes(id)),['b','c'],'budget-deferred trades remain in the queue');
+const paused=mergeMaeMfeBatch(partial,['b','c'],{rows:[],skipped:[{id:'b',reason:'rate limit',retryable:true}],completed:[],deferred:[{id:'c'}],stopped:true});
+assert.deepEqual(paused.attempted,['a']);assert.equal(paused.rows[0].mae,-1,'pausing keeps earlier successful results');
+const recovered=mergeMaeMfeBatch(paused,['b','c'],{rows:[{id:'b',mae:-2}],skipped:[{id:'c',reason:'history unavailable'}],completed:['b','c'],deferred:[],stopped:false});
+assert.deepEqual(recovered.attempted,['a','b','c']);assert.equal(recovered.skipped.length,1);assert.equal(recovered.skipped[0].id,'c');assert.deepEqual(recovered.resume,{});
+const forged=mergeMaeMfeBatch(empty,['a'],{rows:[{id:'other'}],skipped:[],completed:['other'],deferred:[{id:'other',resume:{providerIndex:1,intervalIndex:0}}],stopped:false});
+assert.deepEqual(forged,empty,'only the submitted batch can change completion and data');
+let state=empty;const all=Array.from({length:64},(_,i)=>String(i));let calls=0;
+while(state.attempted.length<all.length){const batch=all.filter(id=>!state.attempted.includes(id)).slice(0,3);state=mergeMaeMfeBatch(state,batch,{rows:batch.map(id=>({id})),skipped:[],completed:batch,deferred:[],stopped:false});calls++;}
+assert.equal(state.rows.length,64);assert.equal(calls,22,'all selected trades complete through bounded three-trade segments');
+console.log('Passed MAE/MFE queue completion, continuation cursors, pause/recovery, successful-result preservation and all-trade sequencing.');

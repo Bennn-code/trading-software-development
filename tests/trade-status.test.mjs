@@ -86,12 +86,15 @@ assert.notEqual(maeMfeFingerprint([{...fingerprintSource,side:'short'}]),fingerp
 assert.notEqual(maeMfeFingerprint([{...fingerprintSource,timezone:'America/New_York'}]),fingerprint,'changing the trade timezone invalidates cached MAE/MFE');
 assert.notEqual(maeMfeFingerprint([{...fingerprintSource,multiplier:2}]),fingerprint,'changing the contract multiplier invalidates cached MAE/MFE');
 const concentration=profitConcentration([rTrade('p1',100),rTrade('p2',-50),rTrade('p3',50)]);
+assert.deepEqual(concentration.map(row=>row.cumulativeNet),[100,150,100],'bar values accumulate ranked net P&L, not individual results');
+assert.equal(concentration.at(-1).cumulativeNet,100,'the final cumulative bar matches total realized P&L');
 assert.equal(concentration[0].trade.id,'p1');assert.ok(Math.abs(concentration[0].profitShare-100*2/3)<1e-10);assert.ok(Math.abs(concentration[0].cumulativeProfitShare-100*2/3)<1e-10);
 assert.ok(Math.abs(concentration[1].profitShare-100/3)<1e-10);assert.equal(concentration[1].cumulativeProfitShare,100);
 assert.equal(concentration[2].lossShare,100);assert.equal(concentration[2].cumulativeLossShare,100,'loss shares use their own absolute-loss denominator');
 assert.equal(concentration[2].cumulativeProfitShare,100,'profit share stays complete when the sorted chart continues into losses');assert.equal(concentration[0].cumulativeLossShare,0,'loss share begins at zero before the first loss');
 const profitOnly=profitConcentration([rTrade('po1',30),rTrade('po2',70)]);assert.equal(profitOnly[1].cumulativeProfitShare,100);assert.equal(profitOnly[0].lossShare,null);
 const lossOnly=profitConcentration([rTrade('lo1',-25),rTrade('lo2',-75)]);assert.equal(lossOnly[0].lossShare,25);assert.equal(lossOnly[1].cumulativeLossShare,100);assert.equal(lossOnly[0].profitShare,null);
+assert.deepEqual(lossOnly.map(row=>row.cumulativeNet),[-25,-100],'losses and negative period totals accumulate with their actual signs');
 const breakEven=profitConcentration([rTrade('be1',0)])[0];assert.equal(breakEven.profitShare,null);assert.equal(breakEven.lossShare,null,'break-even trades do not enter either share denominator');
 const sequence=[
  {...rTrade('s1',-5),entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',positionValue:1000},

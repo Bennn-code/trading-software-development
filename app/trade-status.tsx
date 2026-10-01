@@ -6,6 +6,7 @@ import { useI18n } from './language-provider';
 import ConvertedMoney from './converted-money';
 import MarketDataSettings from './market-data-settings';
 import type { QuoteKeys } from '@/lib/market-candles';
+import { mergeMaeMfeBatch, type MaeMfeBatch, type MaeMfeQueueState } from '@/lib/mae-mfe-queue';
 import InfoTooltip from '@/components/info-tooltip';
 import FavoriteStar from '@/components/favorite-star';
 import { cryptoProductForTrade, marketName, pnl, positionValue, type Trade } from '@/lib/trades';
@@ -21,8 +22,7 @@ type TimeBucket = { position: number; label: string; count: number; winRate: num
 type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; averageDuration: number | null; previousAverageDuration: number | null; averageWinDuration: number | null; averageLossDuration: number | null; bestWeekday: { weekday: number; net: number } | null; worstWeekday: { weekday: number; net: number } | null; sharpe: number | null; expectancy: number; expectancyPercent: number | null };
 type TimeProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; clock: TimeBucket[]; holding: TimeBucket[] };
 type MaeMfeRow = { referenceSymbol?:string;productType?:string;id:string;provider:string;timeframe?:string;market:Trade['market'];symbol:string;currency:string;mae:number|null;mfe:number|null;actual:number;candleCount:number;entryTime:string;manualMae?:boolean;manualMfe?:boolean;displayFactor?:number };
-type MaeMfeSkip = { id:string;reason:string };
-type MaeMfeAnalysis = { selectionKey:string;rows:MaeMfeRow[];skipped:MaeMfeSkip[];attempted:string[] };
+type MaeMfeAnalysis = MaeMfeQueueState<MaeMfeRow> & { selectionKey:string };
 type RecoveryItem=ReturnType<typeof lossRecoveryStats>[number];
 type ConcentrationGroup={market:Trade['market'];currency:Trade['currency'];rows:ReturnType<typeof profitConcentration>};
 type StatusExchangeRates={rates:Record<string,number>;updatedAt:number};
@@ -47,6 +47,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
   const [maeMfeAnalysis,setMaeMfeAnalysis]=useState<MaeMfeAnalysis|null>(null);
   const [maeMfeBusy,setMaeMfeBusy]=useState(false);
   const [maeMfeError,setMaeMfeError]=useState('');
+  const [maeMfePaused,setMaeMfePaused]=useState(false);
   const [quoteKeys,setQuoteKeys]=useState<QuoteKeys>({});
   const [cryptoTypes,setCryptoTypes]=useState<Record<string,'spot'|'perpetual'>>({});
   const analysisRequest=useRef<AbortController|null>(null);
@@ -85,9 +86,9 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     : trades, [trades, range.start, range.end]);
   const quoteTrades=useMemo(()=>selected.map(trade=>trade.market==='crypto'?{...trade,cryptoProductType:cryptoProductForTrade(trade)??cryptoTypes[trade.id]??null}:trade),[selected,cryptoTypes]);
   const maeMfeSelectionKey=useMemo(()=>maeMfeFingerprint(quoteTrades),[quoteTrades]);
-  const currentMaeMfeAnalysis=useMemo(()=>maeMfeAnalysis?.selectionKey===maeMfeSelectionKey?maeMfeAnalysis:{selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[]},[maeMfeAnalysis,maeMfeSelectionKey]);
+  const currentMaeMfeAnalysis=useMemo(()=>maeMfeAnalysis?.selectionKey===maeMfeSelectionKey?maeMfeAnalysis:{selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[],resume:{}},[maeMfeAnalysis,maeMfeSelectionKey]);
   const maeMfeEligible=useMemo(()=>quoteTrades.filter(trade=>Number.isFinite(durationMinutes(trade))&&durationMinutes(trade)>0&&(trade.mae==null||trade.mfe==null)&&(trade.market==='crypto'?!!trade.cryptoProductType:trade.market==='tw-stocks'||trade.market==='tw-index-futures'?!!quoteKeys.fugle:trade.market==='futures'?!!quoteKeys.databento:!!quoteKeys.twelveData)),[quoteTrades,quoteKeys]);
-  const maeMfePending=useMemo(()=>maeMfeEligible.filter(trade=>!currentMaeMfeAnalysis.attempted.includes(trade.id)).slice(0,3),[maeMfeEligible,currentMaeMfeAnalysis.attempted]);
+  const maeMfePending=useMemo(()=>maeMfeEligible.filter(trade=>!currentMaeMfeAnalysis.attempted.includes(trade.id)),[maeMfeEligible,currentMaeMfeAnalysis.attempted]);
   useEffect(()=>{analysisRequest.current?.abort();},[maeMfeSelectionKey]);
 
   const data = useMemo(() => {
@@ -219,41 +220,42 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
   }
 
   const analyzeMaeMfeNextBatch=useCallback(async()=>{
-    if(!maeMfePending.length||maeMfeBusy)return;
+    if(!maeMfePending.length||analysisRequest.current)return;
     setMaeMfeBusy(true);setMaeMfeError('');
-    const batch=maeMfePending;
+    const batch=maeMfePending.slice(0,3),resume=Object.fromEntries(batch.flatMap(trade=>currentMaeMfeAnalysis.resume[trade.id]?[[trade.id,currentMaeMfeAnalysis.resume[trade.id]]]:[]));
     const controller=new AbortController();analysisRequest.current=controller;
     try{
-      const response=await fetch('/api/trade-status/mae-mfe',{method:'POST',signal:controller.signal,headers:{'content-type':'application/json'},body:JSON.stringify({quoteKeys,trades:batch.map(trade=>({
+      const response=await fetch('/api/trade-status/mae-mfe',{method:'POST',signal:controller.signal,headers:{'content-type':'application/json'},body:JSON.stringify({quoteKeys,resume,trades:batch.map(trade=>({
         account:'quote',notes:'',strategy:'',imageId:null,cryptoProductType:trade.cryptoProductType,priceSymbol:trade.priceSymbol,
         id:trade.id,market:trade.market,currency:trade.currency,symbol:trade.symbol,side:trade.side,entryTime:trade.entryTime,exitTime:trade.exitTime,timezone:trade.timezone,
         entry:trade.entry,exit:trade.exit,quantity:trade.quantity,multiplier:trade.multiplier,positionValue:trade.positionValue,exchangeSource:trade.exchangeSource,
         netOverride:trade.netOverride,profitBasis:trade.profitBasis,fees:trade.fees,funding:trade.funding,feeMode:trade.feeMode,commission:trade.commission,transactionTax:trade.transactionTax,
         exchangeFee:trade.exchangeFee,clearingFee:trade.clearingFee,settlementFee:trade.settlementFee,regulatoryFee:trade.regulatoryFee,secFee:trade.secFee,finraFee:trade.finraFee,futuresTax:trade.futuresTax,
       }))})});
-      const result=await response.json() as {error?:string;rows?:MaeMfeRow[];skipped?:MaeMfeSkip[];stopped?:boolean};
+      const result=await response.json() as Partial<MaeMfeBatch<MaeMfeRow>> & {error?:string};
       if(controller.signal.aborted)return;
       if(!response.ok)throw new Error(result.error||t('MAE／MFE 分析失敗'));
-      if(result.stopped)setMaeMfeError(t('行情分析已暫停；請查看未完成原因，確認授權或稍後重新分析。'));
-      const receivedRows=Array.isArray(result.rows)?result.rows:[],receivedSkipped=Array.isArray(result.skipped)?result.skipped:[];
+      if(!Array.isArray(result.rows)||!Array.isArray(result.skipped)||!Array.isArray(result.completed)||!Array.isArray(result.deferred))throw new Error(t('MAE／MFE 分析回應不完整，已保留進度，請稍後續查。'));
+      if(result.stopped){setMaeMfePaused(true);setMaeMfeError(t('行情分析已暫停；請查看未完成原因，確認授權或稍後續查。'));}
+      const received=result as MaeMfeBatch<MaeMfeRow>;
+      if(!received.stopped&&!received.completed.length&&!received.deferred.some(item=>item.resume&&JSON.stringify(item.resume)!==JSON.stringify(currentMaeMfeAnalysis.resume[item.id])))throw new Error(t('MAE／MFE 分析回應不完整，已保留進度，請稍後續查。'));
       setMaeMfeAnalysis(previous=>{
-        const current=previous?.selectionKey===maeMfeSelectionKey?previous:{selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[]};
-        const mergedRows=new Map([...current.rows,...receivedRows].map(row=>[row.id,row]));
-        const mergedSkipped=new Map([...current.skipped,...receivedSkipped].map(row=>[row.id,row]));
-        return{selectionKey:maeMfeSelectionKey,rows:[...mergedRows.values()],skipped:[...mergedSkipped.values()],attempted:[...new Set([...current.attempted,...batch.map(trade=>trade.id)])]};
+        const current=previous?.selectionKey===maeMfeSelectionKey?previous:{rows:[],skipped:[],attempted:[],resume:{}};
+        return{selectionKey:maeMfeSelectionKey,...mergeMaeMfeBatch(current,batch.map(trade=>trade.id),received)};
       });
-    }catch(error){if(!controller.signal.aborted)setMaeMfeError(error instanceof Error?error.message:t('MAE／MFE 分析失敗'));}
-    finally{setMaeMfeBusy(false);}
-  },[maeMfePending,maeMfeBusy,maeMfeSelectionKey,quoteKeys,t]);
+    }catch(error){if(!controller.signal.aborted){setMaeMfePaused(true);setMaeMfeError(error instanceof Error?error.message:t('MAE／MFE 分析失敗'));}}
+    finally{if(analysisRequest.current===controller)analysisRequest.current=null;setMaeMfeBusy(false);}
+  },[maeMfePending,currentMaeMfeAnalysis.resume,maeMfeSelectionKey,quoteKeys,t]);
 
   useEffect(()=>{
-    if(!signedIn||demo||maeMfeBusy||maeMfeError||!maeMfePending.length||(favoritesOnly&&!favoriteIds.includes('mae-mfe')))return;
+    if(!signedIn||demo||maeMfeBusy||maeMfePaused||maeMfeError||!maeMfePending.length||(favoritesOnly&&!favoriteIds.includes('mae-mfe')))return;
     const timer=setTimeout(()=>void analyzeMaeMfeNextBatch(),350);return()=>clearTimeout(timer);
-  },[signedIn,demo,maeMfeBusy,maeMfeError,maeMfePending.length,favoritesOnly,favoriteIds,analyzeMaeMfeNextBatch]);
+  },[signedIn,demo,maeMfeBusy,maeMfePaused,maeMfeError,maeMfePending.length,favoritesOnly,favoriteIds,analyzeMaeMfeNextBatch]);
 
-  function confirmCryptoTypes(ids:string[],type:'spot'|'perpetual'){setCryptoTypes(previous=>({...previous,...Object.fromEntries(ids.map(id=>[id,type]))}));setMaeMfeError('');}
+  function confirmCryptoTypes(ids:string[],type:'spot'|'perpetual'){setCryptoTypes(previous=>({...previous,...Object.fromEntries(ids.map(id=>[id,type]))}));setMaeMfeError('');setMaeMfePaused(false);}
 
-  function resetMaeMfeAnalysis(){setMaeMfeAnalysis({selectionKey:maeMfeSelectionKey,rows:[],skipped:[],attempted:[]});setMaeMfeError('');}
+  function retryMaeMfeAnalysis(){const failed=new Set(currentMaeMfeAnalysis.skipped.map(item=>item.id));setMaeMfeAnalysis({...currentMaeMfeAnalysis,skipped:[],attempted:currentMaeMfeAnalysis.attempted.filter(id=>!failed.has(id))});setMaeMfeError('');setMaeMfePaused(false);}
+  function applyQuoteKeys(keys:QuoteKeys){setQuoteKeys(keys);retryMaeMfeAnalysis();}
 
   return <div className="status-grid">
     {(!favoritesOnly || favoriteIds.includes('score')) && <section id={tradeStatusFavoriteDomId('score')} className="panel status-card status-hero"><StatusHeader id="score" title={t('交易分數')} icon={null} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}/><div className="status-score-value"><strong>{data.score}</strong><small>/ 100</small></div><div className="score-gauge" style={{ '--score': `${data.score * 3.6}deg` } as React.CSSProperties}><i style={{ transform: `rotate(${data.score * 1.8 - 90}deg)` }}/></div><p>{t('依勝率、盈虧效率與紀律紀錄計算；只反映已保存資料。')}</p></section>}
@@ -275,15 +277,15 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
 
     <Card favoriteId="loss-recovery" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Activity/>} title={t('連續虧損與恢復狀況')} className="status-full analytics-card">{data.recovery.length?<RecoveryStats rows={data.recovery} t={t}/>:<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('連敗後部位變化只比較同一商品，且必須有完整部位大小；恢復時間依逐筆出場損益累積至先前資金高點估算。')}</p></Card>
 
-    <Card favoriteId="mae-mfe" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<TrendingUp/>} title={t('每筆交易 MAE／MFE 區間')} className="status-full analytics-card" actions={<InfoTooltip label={t('MAE／MFE 統計說明')} contentClassName="factor-help-wide"><strong>{t('MAE／MFE 統計說明')}</strong><p>{t('每筆交易 MAE／MFE 說明內容')}</p><p>{t('加密貨幣依序使用 Binance、OKX、Bybit、BingX 的同交易對參考行情；股票與期貨需行情金鑰及授權。現貨與永續不混用，沒有可靠行情時不會畫成零。')}</p><p>{t('先依持倉期間選擇可完整查詢的分鐘線；查不到再嘗試 15 分鐘、30 分鐘、1 小時、4 小時或日線（依來源支援）。粗週期包含未持倉時段的價格，MAE／MFE 屬區間估算，可能高估幅度。')}</p><p>{t('已手動填寫的 MAE／MFE 優先顯示；空白代表沒有資料，不代表零。')}</p><p>{t('自動分析結果只暫存於目前頁面；重新載入後需重新分析。手動填寫的 MAE／MFE 會保存於交易紀錄。')}</p></InfoTooltip>}>
+    <Card favoriteId="mae-mfe" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<TrendingUp/>} title={t('每筆交易 MAE／MFE 區間')} className="status-full analytics-card" actions={<InfoTooltip label={t('MAE／MFE 統計說明')} contentClassName="factor-help-wide"><strong>{t('MAE／MFE 統計說明')}</strong><p>{t('MAE 是持倉期間相對進場價的最大浮虧，MFE 是最大浮盈；手動數值優先，自動數值來自同商品歷史 K 線的區間估算。報表按出場日期篩選，圖表按進場時間排序，並分市場與幣別顯示。')}</p><p>{t('加密貨幣依序使用 Binance、OKX、Bybit、BingX 的同交易對參考行情；股票與期貨需行情金鑰及授權。現貨與永續不混用，沒有可靠行情時不會畫成零。')}</p><p>{t('先依持倉期間選擇可完整查詢的分鐘線；查不到再嘗試 15 分鐘、30 分鐘、1 小時、4 小時或日線（依來源支援）。粗週期包含未持倉時段的價格，MAE／MFE 屬區間估算，可能高估幅度。')}</p><p>{t('已手動填寫的 MAE／MFE 優先顯示；空白代表沒有資料，不代表零。')}</p><p>{t('自動分析結果只暫存於目前頁面；重新載入後需重新分析。手動填寫的 MAE／MFE 會保存於交易紀錄。')}</p></InfoTooltip>}>
       <MaeMfeAverages rows={maeMfeRows} t={t} baseCurrency={baseCurrency} rates={statusRates}/>
-      <div className="analysis-action-row"><MarketDataSettings keys={quoteKeys} busy={maeMfeBusy} onApply={keys=>{setQuoteKeys(keys);resetMaeMfeAnalysis();}}/><button type="button" className="outline-button" disabled={!signedIn||demo||maeMfeBusy||(!maeMfePending.length&&currentMaeMfeAnalysis.attempted.length===0)} aria-busy={maeMfeBusy} onClick={()=>maeMfePending.length?void analyzeMaeMfeNextBatch():resetMaeMfeAnalysis()}><RefreshCw size={15} className={maeMfeBusy?'animate-spin':''}/>{maeMfeBusy?t('分析中…'):maeMfePending.length?t('分析下一批交易（{0} 筆）',[maeMfePending.length]):t('重新分析')}</button><span>{t('可自動分析 {0} 筆交易',[maeMfeEligible.length])} · {t('已完成 {0} 筆',[currentMaeMfeAnalysis.attempted.length])}</span></div>
+      <div className="analysis-action-row"><MarketDataSettings keys={quoteKeys} busy={maeMfeBusy} onApply={applyQuoteKeys}/><button type="button" className="outline-button" disabled={!signedIn||demo||maeMfeBusy||(!maeMfePending.length&&!currentMaeMfeAnalysis.skipped.length)} aria-busy={maeMfeBusy} onClick={()=>maeMfePending.length?(setMaeMfeError(''),setMaeMfePaused(false)):retryMaeMfeAnalysis()}><RefreshCw size={15} className={maeMfeBusy?'animate-spin':''}/>{maeMfeBusy?t('分析中…'):maeMfePending.length?maeMfePaused||maeMfeError?t('繼續分析全部交易（{0} 筆）',[maeMfePending.length]):t('分析全部交易（{0} 筆）',[maeMfePending.length]):currentMaeMfeAnalysis.skipped.length?t('重試未取得行情'):t('分析完成')}</button>{maeMfePending.length>0&&!maeMfePaused&&<button type="button" className="outline-button" onClick={()=>setMaeMfePaused(true)}>{t('暫停')}</button>}<span role="status" aria-live="polite">{t('已處理 {0}／{1} 筆 · 成功 {2} 筆 · 待查 {3} 筆',[currentMaeMfeAnalysis.attempted.length,maeMfeEligible.length,currentMaeMfeAnalysis.rows.length,maeMfePending.length])}{maeMfePaused?' · '+t(maeMfeBusy?'完成目前查詢後暫停':'已暫停'):''}</span></div><p className="market-metrics-note">{t('全部交易已排入佇列，依序分段查詢；查詢額度用完會保留進度接續，不把未查交易當成完成。遇限流或授權拒絕會暫停，請稍後手動續查。')}</p>
       <MaeMfeCharts groups={maeMfeGroups} t={t} baseCurrency={baseCurrency} rates={statusRates}/>
       <p className="market-metrics-note">{t('資料完整的 USDT 加密交易會自動分析，不需行情金鑰；未明確標示現貨或永續時，請先編輯商品類型。結果標示實際行情來源與週期，跨交易所價格可能不同。')}</p>
       {!signedIn||demo?<Empty text={t('登入並切換至我的紀錄後，才能查詢公開 K 線。')}/>:cryptoWithoutSource.length>0?<details className="analysis-product-types" open><summary>{t('有 {0} 筆加密交易需確認商品類型',[cryptoWithoutSource.length])}</summary><p>{t('確認後立即補查歷史行情；此選擇只用於本次分析，不更改已保存的交易。')}</p><div className="analysis-type-actions"><button type="button" className="outline-button" disabled={maeMfeBusy} onClick={()=>confirmCryptoTypes(cryptoWithoutSource.map(trade=>trade.id),'perpetual')}>{t('以上皆為永續合約')}</button><button type="button" className="outline-button" disabled={maeMfeBusy} onClick={()=>confirmCryptoTypes(cryptoWithoutSource.map(trade=>trade.id),'spot')}>{t('以上皆為現貨')}</button></div><div className="analysis-type-grid">{cryptoWithoutSource.map(trade=><Choice key={trade.id} label={`${trade.symbol} · ${trade.entryTime.replace('T',' ')}`} value="" options={[["",t('請確認商品類型')],["perpetual",t('永續合約')],["spot",t('現貨')]]} onChange={value=>{if(value)confirmCryptoTypes([trade.id],value as 'spot'|'perpetual');}}/>)}</div></details>:null}
-      {currentMaeMfeAnalysis.skipped.length>0&&<details className="analysis-skipped"><summary>{t('有 {0} 筆交易無法計算',[currentMaeMfeAnalysis.skipped.length])}</summary>{currentMaeMfeAnalysis.skipped.map(item=><p key={item.id}>{selected.find(trade=>trade.id===item.id)?.symbol??item.id} · {t(item.reason)}</p>)}</details>}{maeMfeError&&<p role="alert" className="status-error">{t(maeMfeError)}</p>}
+      {currentMaeMfeAnalysis.skipped.length>0&&<details className="analysis-skipped"><summary>{t('未取得行情 {0} 筆 · 待重試 {1} 筆',[currentMaeMfeAnalysis.skipped.filter(item=>!item.retryable).length,currentMaeMfeAnalysis.skipped.filter(item=>item.retryable).length])}</summary>{currentMaeMfeAnalysis.skipped.map(item=><p key={item.id}>{selected.find(trade=>trade.id===item.id)?.symbol??item.id} · {item.retryable?t('待重試'):t('無法估算')} · {t(item.reason)}</p>)}</details>}{maeMfeError&&<p role="alert" className="status-error">{t(maeMfeError)}</p>}
     </Card>
-    <Card favoriteId="profit-concentration" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('損益變化與獲利集中度')} className="status-full analytics-card" actions={<InfoTooltip label={t('損益圖表統計說明')} contentClassName="factor-help-wide"><strong>{t('損益圖表統計說明')}</strong><p>{t('損益圖表統計方式')}</p></InfoTooltip>}>{concentrationGroups.length?<ProfitConcentrationCharts groups={concentrationGroups} t={t} baseCurrency={baseCurrency} rates={statusRates}/>:<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('柱狀圖依單筆淨損益由高到低排列；獲利線與虧損線各自顯示累積占比；游標提示框另列單筆占比與金額。獲利與虧損分開計算，各自以該組損益絕對總額為 100%。此圖不是依時間累積的資金曲線。')}</p></Card>
+    <Card favoriteId="profit-concentration" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('損益變化與獲利集中度')} className="status-full analytics-card" actions={<InfoTooltip label={t('損益圖表統計說明')} contentClassName="factor-help-wide"><strong>{t('損益圖表統計說明')}</strong><p>{t('交易依單筆淨損益由高到低排序，柱高為排序後逐筆累加的淨損益；最後一柱等於所選期間淨損益。獲利與虧損占比分開計算，提示框保留單筆金額。此圖為集中度排序，並非按時間的資金曲線。')}</p></InfoTooltip>}>{concentrationGroups.length?<ProfitConcentrationCharts groups={concentrationGroups} t={t} baseCurrency={baseCurrency} rates={statusRates}/>:<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('交易依單筆淨損益由高到低排序，柱高為排序後逐筆累加的淨損益；最後一柱等於所選期間淨損益。獲利與虧損占比分開計算，提示框保留單筆金額。此圖為集中度排序，並非按時間的資金曲線。')}</p></Card>
 
     {(!favoritesOnly || favoriteIds.includes('market-metrics') || favoriteIds.some(id => id.startsWith('market-stat:'))) && <section id={tradeStatusFavoriteDomId('market-metrics')} className="panel status-card status-full market-metrics-section"><StatusHeader id="market-metrics" title={t('各市場交易統計')} icon={<BarChart3/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}/><div className="market-metrics-grid">{data.products.map(product => { const id = `market-stat:${product.market}:${product.currency}`; if (favoritesOnly && !favoriteIds.includes('market-metrics') && !favoriteIds.includes(id)) return null; return <section id={tradeStatusFavoriteDomId(id)} className="market-metrics-card" key={id}><header><div className="market-metric-heading"><FavoriteStar active={favoriteIds.includes(id)} title={tradeStatusFavoriteTitle(id,t)} onToggle={()=>onToggleFavorite(id)}/><h3>{t(marketName(product.market))} · {product.currency}</h3></div><span>{product.count} {t('筆')}</span></header><div className="market-metric-grid">
       <Metric label={t('平均交易時間')} value={durationText(product.averageDuration,t)}/>
@@ -339,8 +341,8 @@ function MaeMfeAverages({rows,t,baseCurrency,rates}:{rows:MaeMfeRow[];t:(text:st
   return [...groups].map(([currency,group])=>({scope,currency,count:group.count,maeCount:group.mae.length,mfeCount:group.mfe.length,mae:group.mae.length?group.mae.reduce((sum,value)=>sum+value,0)/group.mae.length:null,mfe:group.mfe.length?group.mfe.reduce((sum,value)=>sum+value,0)/group.mfe.length:null}));
  };
  const overall=summarize(rows,t('整體')),markets=rows.length?[...new Set(rows.map(row=>row.market))].flatMap(market=>summarize(rows.filter(row=>row.market===market),t(marketName(market)))):[];
- const cards=[...overall,...markets];
- return cards.length?<><h3 className="mae-mfe-summary-heading">{t('平均 MAE／MFE')}<small>{baseCurrency==='auto'?t('未選換算幣別，整體依原幣別分列。'):t('依目前選擇的主要換算幣別統計；缺少匯率時保留原幣別分列。')}</small></h3><div className="mae-mfe-average-grid">{cards.map((item,index)=><section className="market-metric" key={item.scope+'-'+item.currency+'-'+index}><span>{item.scope} · {item.currency}</span><strong className={item.mae===null?'':item.mae<0?'loss-value':'profit-value'}>{t('平均浮虧 MAE')} · {item.mae===null?'—':fmt(item.mae)+' '+item.currency}</strong><strong className={item.mfe===null?'':item.mfe>0?'profit-value':'loss-value'}>{t('平均浮盈 MFE')} · {item.mfe===null?'—':fmt(item.mfe)+' '+item.currency}</strong><small>{t('MAE 樣本 {0} · MFE 樣本 {1} · 交易 {2}',[item.maeCount,item.mfeCount,item.count])}</small></section>)}</div></>:null;
+ const metrics=(item:typeof overall[number])=><div className="mae-mfe-average-values"><strong className={item.mae===null?'':item.mae<0?'loss-value':'profit-value'}>{t('平均浮虧 MAE')} · {item.mae===null?'—':fmt(item.mae)+' '+item.currency}</strong><strong className={item.mfe===null?'':item.mfe>0?'profit-value':'loss-value'}>{t('平均浮盈 MFE')} · {item.mfe===null?'—':fmt(item.mfe)+' '+item.currency}</strong><small>{t('MAE 樣本 {0} · MFE 樣本 {1} · 交易 {2}',[item.maeCount,item.mfeCount,item.count])}</small></div>;
+ return overall.length?<><h3 className="mae-mfe-summary-heading">{t('平均 MAE／MFE')}<small>{baseCurrency==='auto'?t('未選換算幣別，整體依原幣別分列。'):t('依目前選擇的主要換算幣別統計；缺少匯率時保留原幣別分列。')}</small></h3><section className="market-metric mae-mfe-overall"><header><strong>{t('整體')}</strong><span>{rows.length} {t('筆')}</span></header><div className="mae-mfe-overall-currencies">{overall.map(item=><div className="mae-mfe-currency-summary" key={item.currency}><span>{item.currency}</span>{metrics(item)}</div>)}</div></section><div className="mae-mfe-average-grid">{markets.map((item,index)=><section className="market-metric" key={item.scope+'-'+item.currency+'-'+index}><span>{item.scope} · {item.currency}</span>{metrics(item)}</section>)}</div></>:null;
 }
 
 type MaeMfeMetric='mae'|'mfe'|'actual';
@@ -364,22 +366,22 @@ function MaeMfeCharts({groups,t,baseCurrency,rates}:{groups:[string,MaeMfeRow[]]
 
 function ProfitConcentrationCharts({groups,t,baseCurrency,rates}:{groups:ConcentrationGroup[];t:(text:string,values?:unknown[])=>string;baseCurrency:string;rates:StatusExchangeRates|null}){
   return <div className="analytics-product-grid">{groups.map(group=>{
-    const display=chartCurrency(group.currency,baseCurrency,rates),start={index:0,trade:null as Trade|null,net:0,profitShare:null as number|null,cumulativeProfitShare:0 as number|null,lossShare:null as number|null,cumulativeLossShare:0 as number|null,displayNet:0},lastGain=group.rows.findLastIndex(row=>row.net>=0),chartRows=[{...start,profitCurve:group.rows.some(row=>row.net>0)?0:null,lossCurve:lastGain===-1?0:null},...group.rows.map((row,index)=>({...row,displayNet:row.net*display.factor,profitCurve:row.net>0?row.cumulativeProfitShare:null,lossCurve:row.net<0?row.cumulativeLossShare:index===lastGain?0:null}))];
+    const display=chartCurrency(group.currency,baseCurrency,rates),start={index:0,trade:null as Trade|null,net:0,cumulativeNet:0,profitShare:null as number|null,cumulativeProfitShare:0 as number|null,lossShare:null as number|null,cumulativeLossShare:0 as number|null,displayNet:0,displayCumulative:0},lastGain=group.rows.findLastIndex(row=>row.net>=0),chartRows=[{...start,profitCurve:group.rows.some(row=>row.net>0)?0:null,lossCurve:lastGain===-1?0:null},...group.rows.map((row,index)=>({...row,displayNet:row.net*display.factor,displayCumulative:row.cumulativeNet*display.factor,profitCurve:row.net>0?row.cumulativeProfitShare:null,lossCurve:row.net<0?row.cumulativeLossShare:index===lastGain?0:null}))];
     return <section className="analytics-product" key={group.market+'-'+group.currency}>
       <header><strong>{t(marketName(group.market))} · {display.currency}{display.currency!==group.currency?' ('+group.currency+')':''}</strong><span>{group.rows.length} {t('筆')}</span></header>
-      <div className="analytics-horizontal-axis-labels"><span>{t('淨損益')} · {display.currency}</span><span>{t('累積獲利／虧損占比')}</span></div>
+      <div className="analytics-horizontal-axis-labels"><span>{t('累積淨損益')} · {display.currency}</span><span>{t('累積獲利／虧損占比')}</span></div>
       <div className="status-chart analytics-concentration-chart"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartRows} margin={{top:12,right:18,bottom:36,left:12}}>
         <CartesianGrid strokeDasharray="1 5"/><XAxis dataKey="index" minTickGap={28} tickFormatter={value=>String(value)} label={{value:t('交易序號'),position:'insideBottom',offset:-20}}/>
         <YAxis yAxisId="pnl" tickFormatter={value=>fmt(Number(value))}/><YAxis yAxisId="share" orientation="right" domain={[0,100]} tickFormatter={value=>String(Number(value))+'%'} />
         <ReferenceLine y={0} yAxisId="pnl" stroke="var(--muted-foreground)"/><Tooltip cursor={{stroke:'var(--foreground)',strokeOpacity:.6,strokeDasharray:'2 4',strokeWidth:1}} isAnimationActive={false} content={({active,payload})=>{
-          const row=payload?.find(item=>item.dataKey==='displayNet')?.payload as typeof chartRows[number]|undefined;if(!active||!row?.trade)return null;
-          return <div className="status-tooltip"><strong>{row.trade.symbol} · {row.trade.exitTime.replace('T',' ')}</strong><span>{t('淨損益')} · {fmt(row.displayNet)} {display.currency}</span>{display.currency!==group.currency&&<small>{t('原幣別')} · {fmt(row.net)} {group.currency}</small>}{row.net>0?<><span className="profit-value">{t('單筆獲利占比')} · {row.profitShare===null?'—':row.profitShare.toFixed(1)+'%'} · {fmt(row.displayNet)} {display.currency}</span><small>{t('累積獲利占比')} · {row.cumulativeProfitShare===null?'—':row.cumulativeProfitShare.toFixed(1)+'%'}</small></>:row.net<0?<><span className="loss-value">{t('單筆虧損占比')} · {row.lossShare===null?'—':row.lossShare.toFixed(1)+'%'} · {fmt(row.displayNet)} {display.currency}</span><small>{t('累積虧損占比')} · {row.cumulativeLossShare===null?'—':row.cumulativeLossShare.toFixed(1)+'%'}</small></>:null}</div>;
+          const row=payload?.find(item=>item.dataKey==='displayCumulative')?.payload as typeof chartRows[number]|undefined;if(!active||!row?.trade)return null;
+          return <div className="status-tooltip"><strong>{row.trade.symbol} · {row.trade.exitTime.replace('T',' ')}</strong><span className={row.displayCumulative<0?'loss-value':row.displayCumulative>0?'profit-value':''}>{t('累積淨損益')} · {fmt(row.displayCumulative)} {display.currency}</span>{display.currency!==group.currency&&<small>{t('原幣別')} · {fmt(row.cumulativeNet)} {group.currency}</small>}{row.net>0?<><span className="profit-value">{t('單筆獲利占比')} · {row.profitShare===null?'—':row.profitShare.toFixed(1)+'%'} · {fmt(row.displayNet)} {display.currency}</span><small>{t('累積獲利占比')} · {row.cumulativeProfitShare===null?'—':row.cumulativeProfitShare.toFixed(1)+'%'}</small></>:row.net<0?<><span className="loss-value">{t('單筆虧損占比')} · {row.lossShare===null?'—':row.lossShare.toFixed(1)+'%'} · {fmt(row.displayNet)} {display.currency}</span><small>{t('累積虧損占比')} · {row.cumulativeLossShare===null?'—':row.cumulativeLossShare.toFixed(1)+'%'}</small></>:null}</div>;
         }}/>
-        <Bar yAxisId="pnl" dataKey="displayNet" radius={[3,3,0,0]}>{chartRows.map(row=><Cell key={row.trade?.id??'zero'} fill={row.net>=0?'var(--profit-color)':'var(--loss-color)'}/>)}</Bar>
+        <Bar yAxisId="pnl" dataKey="displayCumulative" radius={[3,3,0,0]} isAnimationActive={false}>{chartRows.map(row=><Cell key={row.trade?.id??'zero'} fill={row.displayCumulative>=0?'var(--profit-color)':'var(--loss-color)'}/>)}</Bar>
         <Line yAxisId="share" type="monotoneX" dataKey="profitCurve" name={t('累積獲利占比')} stroke="var(--profit-color)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false}/>
         <Line yAxisId="share" type="monotoneX" dataKey="lossCurve" name={t('累積虧損占比')} stroke="var(--loss-color)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false}/>
       </ComposedChart></ResponsiveContainer></div>
-      <div className="analytics-chart-legend"><span><i className="pnl-legend"/>{t('單筆淨損益')}</span><span><i className="profit-line-legend"/>{t('累積獲利占比')}</span><span><i className="loss-line-legend"/>{t('累積虧損占比')}</span></div>
+      <div className="analytics-chart-legend"><span><i className="pnl-legend"/>{t('累積淨損益')}</span><span><i className="profit-line-legend"/>{t('累積獲利占比')}</span><span><i className="loss-line-legend"/>{t('累積虧損占比')}</span></div>
     </section>;
   })}</div>;
 }
