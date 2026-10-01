@@ -3,7 +3,7 @@ import ts from 'typescript';
 import assert from 'node:assert/strict';
 const compiled=ts.transpileModule(fs.readFileSync('lib/mae-mfe-queue.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const module={exports:{}};new Function('module','exports',compiled)(module,module.exports);
-const {mergeMaeMfeBatch}=module.exports;
+const {mergeMaeMfeBatch,retryableMaeMfe}=module.exports;
 const empty={rows:[],skipped:[],attempted:[],resume:{}};
 const partial=mergeMaeMfeBatch(empty,['a','b','c'],{rows:[{id:'a',mae:-1}],skipped:[],completed:['a'],deferred:[{id:'b',resume:{providerIndex:2,intervalIndex:4}},{id:'c'}],stopped:false});
 assert.deepEqual(partial.attempted,['a']);assert.equal(partial.resume.b.providerIndex,2);
@@ -18,3 +18,5 @@ let state=empty;const all=Array.from({length:64},(_,i)=>String(i));let calls=0;
 while(state.attempted.length<all.length){const batch=all.filter(id=>!state.attempted.includes(id)).slice(0,3);state=mergeMaeMfeBatch(state,batch,{rows:batch.map(id=>({id})),skipped:[],completed:batch,deferred:[],stopped:false});calls++;}
 assert.equal(state.rows.length,64);assert.equal(calls,22,'all selected trades complete through bounded three-trade segments');
 console.log('Passed MAE/MFE queue completion, continuation cursors, pause/recovery, successful-result preservation and all-trade sequencing.');
+
+const retry=retryableMaeMfe({rows:[{id:"saved"}],skipped:[{id:"permanent",reason:"no history"},{id:"transient",reason:"timeout",retryable:true}],attempted:["saved","permanent"],resume:{}});assert.deepEqual(retry.skipped.map(row=>row.id),["permanent"]);assert.deepEqual(retry.attempted,["saved","permanent"]);assert.equal(retry.rows.length,1);

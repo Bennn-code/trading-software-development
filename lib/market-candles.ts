@@ -96,8 +96,10 @@ async function request(ctx: Context, provider: QuoteProvider, url: URL, headers:
   await ctx.reserve(provider);
   let response: Response;
   try {
-    response = await ctx.fetch(url, { method: body ? 'POST' : 'GET', headers: { accept: 'application/json', ...headers, ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, ...(body ? { body: body.toString() } : {}), cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(8000) });
+    response = await ctx.fetch(url, { method: body ? 'POST' : 'GET', headers: { accept: 'application/json', ...headers, ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, ...(body ? { body: body.toString() } : {}), cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(8000) });
   } catch { throw new QuoteError('市場行情連線失敗或逾時，請稍後再試。', false, true); }
+  // Workers supports manual redirects. Never follow Location, particularly with API keys.
+  if (response.status >= 300 && response.status < 400) throw new QuoteError('行情端點要求重新導向；為保護行情金鑰，已停止查詢。', true);
   // Do not route around authentication, IP bans, or provider throttling.
   if ([401, 403, 418, 429].includes(response.status)) throw new QuoteError('行情供應商拒絕授權或限制查詢；已停止本次請求，請檢查金鑰、方案或稍後再試。', true);
   if (response.status === 400 && provider === 'binance') {

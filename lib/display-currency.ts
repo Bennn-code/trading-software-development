@@ -1,6 +1,6 @@
 import { type Trade } from './trades';
 
-export type ExchangeRates={rates:Record<string,number>;updatedAt:number;provider?:string;stale?:boolean};
+export type ExchangeRates={rates:Record<string,number>;updatedAt:number;provider?:string;stale?:boolean;pricingVersion?:number;usdtUpdatedAt?:number};
 
 export function convertAmount(value:number,from:string,to:string,rates:Record<string,number>){
  const fromRate=rates[from],toRate=rates[to];

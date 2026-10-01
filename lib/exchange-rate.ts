@@ -1,4 +1,4 @@
-export type ExchangeRate={rate:number;updatedAt:number;provider:'CoinGecko'};
+export type ExchangeRate={rate:number;updatedAt:number;provider:'CoinGecko'|'Coinbase'};
 export const RATE_MAX_AGE_MS=60*60*1000;
 export function isFreshRate(value:unknown,now=Date.now()):value is ExchangeRate{if(!value||typeof value!=='object')return false;const quote=value as ExchangeRate;return typeof quote.rate==='number'&&Number.isFinite(quote.rate)&&quote.rate>0&&typeof quote.updatedAt==='number'&&Number.isFinite(quote.updatedAt)&&quote.updatedAt<=now+60000&&now-quote.updatedAt<=RATE_MAX_AGE_MS;}
 export function parseExchangeRate(data:unknown,now=Date.now()):ExchangeRate{
@@ -23,6 +23,25 @@ export function createRateLoader(fetcher:typeof fetch=fetch,clock:()=>number=Dat
    const response=await fetcher('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd&include_last_updated_at=true&precision=full',{headers:{accept:'application/json','User-Agent':'TradeJournal/1.0'},signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw new Error(`目前無法取得即時匯率（HTTP ${response.status}）`);
    const quote=parseExchangeRate(await response.json(),clock());cached=quote;checkedAt=clock();return quote;
+  })();
+  try{return await pending;}finally{pending=null;}
+ };
+}
+
+// Fixed public ticker, no credentials or redirect following. Hourly verified USD quote.
+export function createUsdRateLoader(fetcher:typeof fetch=fetch,clock:()=>number=Date.now){
+ let cached:ExchangeRate|null=null,pending:Promise<ExchangeRate>|null=null;
+ return async function load():Promise<ExchangeRate>{
+  if(isFreshRate(cached,clock()))return cached;
+  if(pending)return pending;
+  pending=(async()=>{
+   const response=await fetcher('https://api.exchange.coinbase.com/products/USDT-USD/ticker',{method:'GET',redirect:'manual',headers:{accept:'application/json'},signal:AbortSignal.timeout(8000)});
+   if(!response.ok)throw new Error('無法取得 USDT／USD 實際報價');
+   const {readBoundedText}=await import('./bounded-response');
+   const data=JSON.parse(await readBoundedText(response,16000)) as {price?:unknown;time?:unknown};
+   const quote:ExchangeRate={rate:typeof data.price==='string'?Number(data.price):NaN,updatedAt:typeof data.time==='string'?Date.parse(data.time):NaN,provider:'Coinbase'};
+   if(!isFreshRate(quote,clock())||clock()-quote.updatedAt>5*60*1000)throw new Error('USDT／USD 報價已過期或無效');
+   cached=quote;return quote;
   })();
   try{return await pending;}finally{pending=null;}
  };

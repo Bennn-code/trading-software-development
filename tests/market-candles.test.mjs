@@ -28,8 +28,14 @@ const first = await historicalCandles(trade('ALPHAUSDT'), {}, fixture.ctx);
 assert.equal(first.provider, 'binance'); assert.equal(first.timeframe, '1m');
 assert.equal(fixture.calls[0].url.hostname, 'fapi.binance.com');
 assert.equal(fixture.calls[0].url.pathname, '/fapi/v1/klines');
-assert.equal(fixture.calls[0].init.method, 'GET'); assert.equal(fixture.calls[0].init.redirect, 'error');
+assert.equal(fixture.calls[0].init.method, 'GET'); assert.equal(fixture.calls[0].init.redirect, 'manual');
 assert.deepEqual(calculateMaeMfe(trade('ALPHAUSDT'), first.candles), { mae: -4, mfe: 12, actual: 6, candleCount: 2 });
+const redirected=context(()=>new Response('',{status:302,headers:{location:'https://attacker.invalid/steal'}}));
+await assert.rejects(historicalCandles(trade('REDIRECTUSDT'),{},redirected.ctx),error=>error instanceof QuoteError&&error.stop&&error.message.includes('重新導向'));
+assert.equal(redirected.calls.length,1,'redirects are rejected without following a destination or trying another venue');
+const secretRedirect=context(()=>new Response('',{status:302,headers:{location:'https://attacker.invalid/steal'}}));
+await assert.rejects(historicalCandles(trade('2330',{market:'tw-stocks',currency:'TWD',entryTime:'2026-09-21T02:00',exitTime:'2026-09-21T02:02'}),{fugle:'fixture-key'},secretRedirect.ctx),error=>error instanceof QuoteError&&error.stop);
+assert.equal(secretRedirect.calls.length,1);assert.equal(secretRedirect.calls[0].url.hostname,'api.fugle.tw');assert.equal(secretRedirect.calls[0].init.headers['X-API-KEY']??secretRedirect.calls[0].init.headers['x-api-key'],'fixture-key','key goes only to the allowlisted supplier');
 await historicalCandles(trade('ALPHAUSDT'), {}, fixture.ctx);
 assert.equal(fixture.calls.length, 1, 'public reference candles reuse a bounded cache');
 
