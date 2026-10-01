@@ -1,6 +1,6 @@
 import { convertWallTime } from './display-currency';
 import { readBoundedText } from './bounded-response';
-import type { Trade } from './trades';
+import { cryptoProductForTrade, type Trade } from './trades';
 
 export type QuoteKeys = { fugle?: string; twelveData?: string; databento?: string };
 type CryptoVenue = 'binance' | 'okx' | 'bybit' | 'bingx';
@@ -11,7 +11,7 @@ export type CandleResult = { provider: string; timeframe: string; candles: Price
 export class QuoteError extends Error {
   constructor(message: string, public stop = false) { super(message); }
 }
-const intervals = [1, 5, 15, 60, 240, 1440];
+const intervals = [1, 5, 15, 30, 60, 240, 1440];
 const cryptoOrder: CryptoVenue[] = ['binance', 'okx', 'bybit', 'bingx'];
 const minute = 60_000;
 const publicCache = new Map<string, { until: number; result: CandleResult }>();
@@ -20,7 +20,7 @@ export function utcTradeTime(value: string, timezone = 'Asia/Taipei') {
   try { return Date.parse(`${convertWallTime(value, timezone, 'UTC')}:00Z`); } catch { return NaN; }
 }
 export function cryptoPair(trade: Pick<Trade, 'symbol' | 'priceSymbol' | 'currency' | 'cryptoProductType' | 'exchangeSource'>) {
-  const product = trade.cryptoProductType === undefined && trade.exchangeSource ? 'perpetual' : trade.cryptoProductType;
+  const product = cryptoProductForTrade({ ...trade, market:'crypto' } as Trade);
   if (!product || trade.currency !== 'USDT') return null;
   let symbol = (trade.priceSymbol || trade.symbol).trim().toUpperCase().replace(/\.P$/, '');
   if (trade.exchangeSource === 'kucoin' && symbol.endsWith('USDTM')) symbol = symbol.slice(0, -1);
@@ -177,7 +177,7 @@ async function fugleCandles(ctx: Context, trade: Trade, key: string, start: numb
   if (futures ? !contract : !/^\d{4,6}$/.test(symbol)) throw new QuoteError('請填寫正確行情商品代號；台指期須含確切合約月份，例如 TXF202610 或 TXFJ6。');
   const from = localDate(start, 'Asia/Taipei'), to = localDate(end - 1, 'Asia/Taipei');
   if (end - start > 360 * 86400000) throw new QuoteError('Fugle 單次歷史查詢須少於一年，請縮短持倉期間。');
-  for (const minutes of [1, 5, 15, 60, 1440]) {
+  for (const minutes of [1, 5, 15, 30, 60, 1440]) {
     if ((end - start) / (minutes * minute) > 4000) continue;
     if (minutes !== 1440 && from < (futures ? '2017-06-01' : '2023-05-23')) continue;
     const candles: PriceCandle[] = [];

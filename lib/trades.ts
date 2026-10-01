@@ -25,6 +25,11 @@ export const multipliers: Record<string, number> = { NQ:20, MNQ:2, ES:50, MES:5,
 export const marketNames:Record<Trade['market'],string>={futures:'美股期貨','tw-index-futures':'台指期',crypto:'加密貨幣','us-stocks':'美股現貨','tw-stocks':'台股','cn-stocks':'A股','hk-stocks':'港股'};
 export const marketCurrencies:Record<Trade['market'],Trade['currency']>={futures:'USD','tw-index-futures':'TWD',crypto:'USDT','us-stocks':'USD','tw-stocks':'TWD','cn-stocks':'CNY','hk-stocks':'HKD'};
 export const marketName = (v:string) => marketNames[v as Trade['market']]??v;
+export function cryptoProductForTrade(t:Trade):'spot'|'perpetual'|null{
+ if(t.market!=='crypto')return null;
+ if(t.cryptoProductType)return t.cryptoProductType;
+ return /(?:\.P|-SWAP)$/i.test(t.priceSymbol||t.symbol)?'perpetual':null;
+}
 export const isFuturesMarket = (market:string):market is 'futures'|'tw-index-futures' => market==='futures'||market==='tw-index-futures';
 export function multiplierForSymbol(symbol:string,fallback=1){const root=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(key=>symbol.trim().toUpperCase().startsWith(key));return root?multipliers[root]:fallback;}
 export function parseSignedAmount(text:string):number|null { const value=text.trim().replaceAll('＋','+').replaceAll('−','-').replaceAll('－','-'); if(!value)return null; if(!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value))return NaN; return Number(value.replaceAll(',','')); }

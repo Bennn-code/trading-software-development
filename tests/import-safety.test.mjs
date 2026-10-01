@@ -14,6 +14,8 @@ const ctx={id:crypto.randomUUID(),imageId:crypto.randomUUID(),account:'test',off
 const t=normalizeRow(row,ctx).trade;
 assert.equal(t.market,'crypto');assert.equal(t.multiplier,1);assert.equal(t.fees,null,'unlabeled notional is never a fee');assert.equal(t.funding,null);assert.equal(t.commission,null);assert.equal(t.quantity,0);assert.equal(t.positionValue,null);
 const saved=tradeSchema.parse(t);assert.equal(saved.fees,null);assert.equal(saved.commission,null);assert.equal(saved.funding,null);assert.equal(pnl(saved),63.08);
+assert.equal(saved.mae,null);assert.equal(saved.mfe,null,'a complete trade remains saveable with unknown excursions');
+const excursions=tradeSchema.parse({...t,mae:-12.5,mfe:30});assert.equal(excursions.mae,-12.5);assert.equal(excursions.mfe,30);assert.equal(pnl(excursions),pnl(saved),'manual optional excursions never alter realized P&L');
 assert.equal(tradeSchema.safeParse({...t,netOverride:null}).success,false,'unknown size requires stated profit');
 assert.equal(tradeSchema.safeParse({...t,quantity:-1}).success,false);
 assert.equal(tradeSchema.safeParse({...t,quantity:0,entry:0,positionValue:100}).success,true);assert.ok(Number.isFinite(tradeSchema.parse({...t,entry:0,positionValue:100}).quantity));

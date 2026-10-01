@@ -1520,5 +1520,18 @@
   "Fugle 使用 1／5／15 分鐘、1 小時或日線；台指期須填確切月份並查日夜盤。夜盤日線缺少實際日期時不估算。": "Fugle uses 1/5/15-minute, hourly, or daily bars. Taiwan futures need an exact month and both sessions; date-only night bars without a reliable actual date are not estimated.",
   "Databento 使用 CME 的 1 分鐘、1 小時或日線，需 GLBX.MDP3 權限及確切合約；查詢可能收費。": "Databento uses CME minute, hourly, or daily bars. GLBX.MDP3 access and an exact contract are required; queries may be charged.",
   "股票僅分析一般交易時段；海外市場、分鐘及 4 小時行情依方案授權，查不到會嘗試日線。": "Stocks are analyzed only during regular sessions. International coverage, minute and four-hour bars depend on your plan; daily bars are tried when unavailable.",
-  "目前股票行情只估算一般交易時段；盤前、盤後或非交易時段不會以日線代替。": "Stock estimates currently cover regular sessions only. Pre-market, after-hours, and non-trading times are not replaced with daily bars."
+  "目前股票行情只估算一般交易時段；盤前、盤後或非交易時段不會以日線代替。": "Stock estimates currently cover regular sessions only. Pre-market, after-hours, and non-trading times are not replaced with daily bars.",
+  "有 {0} 筆加密交易需確認商品類型": "Confirm the product type for {0} crypto trades",
+  "確認後立即補查歷史行情；此選擇只用於本次分析，不更改已保存的交易。": "Historical prices are fetched after confirmation. This choice applies only to this analysis and does not change saved trades.",
+  "以上皆為永續合約": "All listed trades are perpetual contracts",
+  "以上皆為現貨": "All listed trades are spot",
+  "請確認商品類型": "Confirm product type",
+  "選填": "Optional",
+  "未辨識到交易，已開啟手動補填；MAE／MFE 留白也能儲存。": "No trades were recognized. Manual entry is open; MAE/MFE can remain blank when saving.",
+  "可直接修改時間、價格、金額與 MAE／MFE；未知費用和浮盈浮虧留白也能儲存。其他欄位請點「編輯全部欄位」。": "Edit times, prices, amounts and MAE/MFE here. Unknown fees and excursions can remain blank when saving. Use Edit all fields for other details.",
+  "依逐筆策略分組，英文不分大小寫，繁簡字及常見中文同義名稱合併；同筆同策略只算一次。百分比以策略項目總數為分母。": "Strategies are grouped without English case differences; simplified/traditional Chinese and explicit common aliases are merged. Each strategy is counted once per trade. Percentages use the total strategy count.",
+  "柱狀圖依單筆淨損益由高到低排列；獲利線與虧損線各自顯示累積占比；游標提示框另列單筆占比與金額。獲利與虧損分開計算，各自以該組損益絕對總額為 100%。此圖不是依時間累積的資金曲線。": "Bars rank individual net P&L from highest to lowest. The profit and loss curves show separate cumulative shares; tooltips include each trade's share and amount. Each side uses its own absolute total as 100%. This is not a chronological equity curve.",
+  "先依持倉期間選擇可完整查詢的分鐘線；查不到再嘗試 15 分鐘、30 分鐘、1 小時、4 小時或日線（依來源支援）。粗週期包含未持倉時段的價格，MAE／MFE 屬區間估算，可能高估幅度。": "Choose the finest candles that cover the holding period, then try 15-minute, 30-minute, 1-hour, 4-hour or daily bars where supported. Coarse bars can include prices outside the position period, so MAE/MFE are interval estimates that may overstate excursions.",
+  "Fugle 使用 1／5／15／30 分鐘、1 小時或日線；台指期須填確切月份並查日夜盤。夜盤日線缺少實際日期時不估算。": "Fugle uses 1/5/15/30-minute, hourly or daily bars. Taiwan index futures require an exact contract month and day/night sessions. Night daily bars without a reliable actual date are not estimated.",
+  "股票僅分析一般交易時段；海外市場、15／30 分鐘及 4 小時行情依方案授權，查不到會嘗試日線。": "Stocks are analyzed during regular sessions. Overseas markets, 15/30-minute and 4-hour bars require plan permissions; daily bars are tried if unavailable."
 }

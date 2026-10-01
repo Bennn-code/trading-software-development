@@ -6,8 +6,8 @@ import { useI18n } from './language-provider';
 import type { QuoteKeys } from '@/lib/market-candles';
 
 const providers = [
-  { id: 'fugle', name: 'Fugle', market: '台股與台指期', note: 'Fugle 使用 1／5／15 分鐘、1 小時或日線；台指期須填確切月份並查日夜盤。夜盤日線缺少實際日期時不估算。', docs: 'https://developer.fugle.tw/docs/data-futopt/http-api/historical/candles/' },
-  { id: 'twelveData', name: 'Twelve Data', market: '美股、港股與 A 股', note: '股票僅分析一般交易時段；海外市場、分鐘及 4 小時行情依方案授權，查不到會嘗試日線。', docs: 'https://support.twelvedata.com/en/articles/5214728-getting-historical-data' },
+  { id: 'fugle', name: 'Fugle', market: '台股與台指期', note: 'Fugle 使用 1／5／15／30 分鐘、1 小時或日線；台指期須填確切月份並查日夜盤。夜盤日線缺少實際日期時不估算。', docs: 'https://developer.fugle.tw/docs/data-futopt/http-api/historical/candles/' },
+  { id: 'twelveData', name: 'Twelve Data', market: '美股、港股與 A 股', note: '股票僅分析一般交易時段；海外市場、15／30 分鐘及 4 小時行情依方案授權，查不到會嘗試日線。', docs: 'https://support.twelvedata.com/en/articles/5214728-getting-historical-data' },
   { id: 'databento', name: 'Databento', market: 'CME 美股期貨', note: 'Databento 使用 CME 的 1 分鐘、1 小時或日線，需 GLBX.MDP3 權限及確切合約；查詢可能收費。', docs: 'https://databento.com/docs/api-reference-historical' },
 ] as const;
 

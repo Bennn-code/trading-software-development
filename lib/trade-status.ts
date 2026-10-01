@@ -1,5 +1,6 @@
 import { isFuturesMarket, pnl,type Trade } from './trades';
 import { convertWallTime } from './display-currency';
+import { Converter } from 'opencc-js/t2cn';
 
 export function bestDayShare(bestNet:number,dailyNetValues:number[]){
  const positiveDailyNet=dailyNetValues.reduce((sum,value)=>sum+Math.max(value,0),0);
@@ -24,11 +25,18 @@ export function strategyStats(trades:Trade[]){const hits=strategyRules.map(([nam
 export type EnteredStrategyRow={name:string;count:number;percent:number};
 export type EnteredStrategyGroup={market:Trade['market'];count:number;rows:EnteredStrategyRow[]};
 export type EnteredStrategyStats={overall:EnteredStrategyRow[];markets:EnteredStrategyGroup[]};
-function enteredStrategyNames(value:string){return [...new Set(value.split(/[、,，;；\n]+/).map(name=>name.trim().replace(/\s+/g,' ')).filter(Boolean))];}
+const strategyChinese=Converter({from:'tw',to:'cn'});
+// Exact spelling variants only; modifiers (e.g. a breakout retest) remain distinct.
+const strategyAliases:Record<string,string>={'止损':'停損','停损':'停損','止损策略':'停損','停损策略':'停損','突破策略':'突破','突破交易':'突破','突破':'突破','回测策略':'回測','回测':'回測','反转策略':'反轉','反转':'反轉','顺势策略':'順勢','顺势':'順勢'};
+export function normalizeStrategyName(value:string){
+ const label=value.normalize('NFKC').trim().replace(/\s+/g,' '),key=strategyChinese(label).toLocaleLowerCase('en-US');
+ const alias=strategyAliases[key];return {key:alias?strategyChinese(alias):key,name:alias??(/^[a-z]{1,5}$/i.test(label)?label.toUpperCase():label)};
+}
+function enteredStrategyNames(value:string){const names=new Map<string,{key:string;name:string}>();for(const text of value.split(/[、,，;；\n]+/)){const name=normalizeStrategyName(text);if(name.key&&!names.has(name.key))names.set(name.key,name);}return [...names.values()];}
 function strategyRows(counts:Map<string,number>):EnteredStrategyRow[]{const total=[...counts.values()].reduce((sum,count)=>sum+count,0);return [...counts].map(([name,count])=>({name,count,percent:total?count/total*100:0})).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));}
 export function enteredStrategyStats(trades:Trade[]):EnteredStrategyStats{
- const overall=new Map<string,number>(),markets=new Map<Trade['market'],Map<string,number>>();
- for(const trade of trades){const names=enteredStrategyNames(trade.strategy||'');if(!names.length)continue;let market=markets.get(trade.market);if(!market){market=new Map();markets.set(trade.market,market);}for(const name of names){overall.set(name,(overall.get(name)||0)+1);market.set(name,(market.get(name)||0)+1);}}
+ const overall=new Map<string,number>(),markets=new Map<Trade['market'],Map<string,number>>(),labels=new Map<string,string>();
+ for(const trade of trades){const names=enteredStrategyNames(trade.strategy||'');if(!names.length)continue;let market=markets.get(trade.market);if(!market){market=new Map();markets.set(trade.market,market);}for(const item of names){if(!labels.has(item.key))labels.set(item.key,item.name);const name=labels.get(item.key)!;overall.set(name,(overall.get(name)||0)+1);market.set(name,(market.get(name)||0)+1);}}
  return{overall:strategyRows(overall),markets:[...markets].map(([market,counts])=>({market,count:[...counts.values()].reduce((sum,value)=>sum+value,0),rows:strategyRows(counts)})).sort((a,b)=>a.market.localeCompare(b.market))};
 }
 export function hasEnteredStrategies(stats:EnteredStrategyStats){return stats.overall.length>0;}
@@ -105,17 +113,18 @@ export const maeMfeIntervals=[
  {minutes:1,label:'1m'},
  {minutes:5,label:'5m'},
  {minutes:15,label:'15m'},
+ {minutes:30,label:'30m'},
  {minutes:60,label:'1h'},
  {minutes:240,label:'4h'},
 ] as const;
 const maeMfeProviderIntervalCodes:Record<MaeMfeProvider,Record<number,string>>={
- bybit:{1:'1',5:'5',15:'15',60:'60',240:'240'},
+ bybit:{1:'1',5:'5',15:'15',30:'30',60:'60',240:'240'},
  bitget:{1:'1m',5:'5m',15:'15m',60:'1H',240:'4H'},
- okx:{1:'1m',5:'5m',15:'15m',60:'1H',240:'4H'},
+ okx:{1:'1m',5:'5m',15:'15m',30:'30m',60:'1H',240:'4H'},
  kucoin:{1:'60',5:'300',15:'900',60:'3600',240:'14400'},
- bingx:{1:'1m',5:'5m',15:'15m',60:'1h',240:'4h'},
+ bingx:{1:'1m',5:'5m',15:'15m',30:'30m',60:'1h',240:'4h'},
  mexc:{1:'Min1',5:'Min5',15:'Min15',60:'Min60',240:'Hour4'},
- binance:{1:'1m',5:'5m',15:'15m',60:'1h',240:'4h'},
+ binance:{1:'1m',5:'5m',15:'15m',30:'30m',60:'1h',240:'4h'},
 };
 export function maeMfeIntervalLabel(minutes:number){return maeMfeIntervals.find(interval=>interval.minutes===minutes)?.label??`${minutes}m`;}
 export function maeMfeProviderInterval(provider:MaeMfeProvider,minutes:number){return maeMfeProviderIntervalCodes[provider][minutes]??null;}
@@ -135,7 +144,8 @@ export function maeMfeFingerprint(trades:Trade[]){
 }
 export type MaeMfeTrade=Pick<Trade,'market'|'entry'|'exit'|'quantity'|'side'|'multiplier'>&Partial<Trade>;
 export function calculateMaeMfe(trade:MaeMfeTrade,candles:CandleRange[]){
- if(!candles.length||candles.some(candle=>!Number.isFinite(candle.high)||!Number.isFinite(candle.low)||candle.high<candle.low)||!Number.isFinite(trade.quantity)||trade.quantity<=0||!Number.isFinite(trade.entry)||!Number.isFinite(trade.exit))return null;
+ const size=trade.market==='crypto'&&trade.positionValue!=null?(trade.entry>0?trade.positionValue/trade.entry:0):trade.quantity;
+ if(!candles.length||candles.some(candle=>!Number.isFinite(candle.high)||!Number.isFinite(candle.low)||candle.high<candle.low)||!Number.isFinite(size)||size<=0||!Number.isFinite(trade.entry)||trade.entry<=0||!Number.isFinite(trade.exit)||trade.exit<=0||isFuturesMarket(trade.market)&&(!Number.isFinite(trade.multiplier)||trade.multiplier<=0))return null;
  const high=Math.max(trade.entry,trade.exit,...candles.map(candle=>candle.high)),low=Math.min(trade.entry,trade.exit,...candles.map(candle=>candle.low)),quantity=(trade.market==='crypto'&&trade.positionValue!=null?(trade.entry>0?trade.positionValue/trade.entry:0):trade.quantity)*(isFuturesMarket(trade.market)?trade.multiplier:1);
  const mae=Math.min(0,trade.side==='long'?(low-trade.entry)*quantity:(trade.entry-high)*quantity);
  const mfe=Math.max(0,trade.side==='long'?(high-trade.entry)*quantity:(trade.entry-low)*quantity);

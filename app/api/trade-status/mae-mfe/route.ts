@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const parsed = inputSchema.safeParse(await readJson(request, 32_000));
     if (!parsed.success) throw new ApiError('每次分析最多三筆有效交易；請檢查交易欄位與行情金鑰格式。');
     const rows = [], skipped = [];
-    const context = { fetch, reserve: reserveOutboundSlot, requests: 0, maxRequests: 24 };
+    const context = { fetch, reserve: reserveOutboundSlot, requests: 0, maxRequests: 32 };
     let stopped = false;
     for (const trade of parsed.data.trades) {
       if (stopped) { skipped.push({ id: trade.id, reason: '本批行情查詢已停止，未再送出請求。' }); continue; }

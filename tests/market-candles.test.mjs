@@ -41,7 +41,7 @@ assert.equal(cryptoPair(trade('BTC-USD')), null, 'USD/inverse is not rewritten t
 assert.equal(cryptoPair(trade('BTCUSDT', { currency: 'USD' })), null);
 assert.deepEqual(cryptoPair(trade('1000PEPE-USDT-SWAP')), { base: '1000PEPE', product: 'perpetual' });
 assert.equal(cryptoPair(trade('BTCUSDT', { exchangeSource: 'bybit', cryptoProductType: null })), null, 'explicit unknown type overrides legacy source');
-assert.equal(cryptoPair(trade('BTCUSDT', { exchangeSource: 'bybit', cryptoProductType: undefined })).product, 'perpetual', 'legacy field was exclusively a perpetual candle source');
+assert.equal(cryptoPair(trade('BTCUSDT', { exchangeSource: 'bybit', cryptoProductType: undefined })), null, 'a venue alone cannot establish spot or perpetual product type');
 
 const fallback = context(url => {
   if (url.hostname === 'fapi.binance.com') return Response.json([]);
@@ -55,6 +55,22 @@ assert.deepEqual([...new Set(fallback.calls.map(call => call.url.hostname))], ['
 assert.equal(fallback.calls.at(-1).url.searchParams.get('symbol'), '1000PEPE-USDT');
 const coarse = context(url => Response.json(url.searchParams.get('interval') === '1m' ? [rows[1]] : [rows[0]]));
 assert.equal((await historicalCandles(trade('COARSEUSDT'), {}, coarse.ctx)).timeframe, '5m', 'partial minute history is rejected before trying a complete coarser bucket');
+const thirty=context(url=>Response.json(url.searchParams.get('interval')==='30m'?[[start,'100','110','95']]:[]));
+assert.equal((await historicalCandles(trade('THIRTYUSDT'),{},thirty.ctx)).timeframe,'30m','missing finer candles fall back to a complete 30-minute bar');
+assert.deepEqual(thirty.calls.map(call=>call.url.searchParams.get('interval')),['1m','5m','15m','30m']);
+for (const venue of ['okx', 'bybit', 'bingx']) {
+ const later=context(url=>{
+  const name=url.hostname.includes('binance')?'binance':url.hostname.includes('okx')?'okx':url.hostname.includes('bybit')?'bybit':'bingx';
+  const interval=url.searchParams.get('interval')??url.searchParams.get('bar');
+  const data=name===venue&&(interval==='30m'||interval==='30')?[[start,'100','110','95']]:[];
+  return Response.json(name==='binance'?data:name==='bybit'?{retCode:0,result:{list:data}}:{code:0,data});
+ },32);
+ const result=await historicalCandles(trade(`${venue.toUpperCase()}THIRTYUSDT`),{},later.ctx);
+ assert.equal(result.provider,venue);assert.equal(result.timeframe,'30m');
+ assert.ok(later.calls.length<=32,'the final venue remains within the batch cap');
+ if(venue==='bingx')assert.equal(later.calls.length,25,'BingX 30m is reachable after three empty venues');
+}
+assert.equal(cryptoPair(trade('BTCUSDT.P',{cryptoProductType:null})).product,'perpetual','an explicit perpetual chart suffix is enough to identify the product');
 
 const banned = context(() => new Response('rate limited', { status: 429 }));
 await assert.rejects(() => historicalCandles(trade('BANUSDT'), {}, banned.ctx), error => error instanceof QuoteError && error.stop);
@@ -66,6 +82,8 @@ const unknown = context(() => { throw new Error('must not fetch'); });
 await assert.rejects(() => historicalCandles(trade('UNKNOWNUSDT', { cryptoProductType: null }), {}, unknown.ctx));
 await assert.rejects(() => historicalCandles(trade('AAPL', { market: 'us-stocks', currency: 'USD' }), {}, unknown.ctx));
 assert.equal(unknown.calls.length, 0);
+await assert.rejects(() => historicalCandles(trade('LEGACYUSDT', { exchangeSource: 'bybit', cryptoProductType: undefined }), {}, unknown.ctx));
+assert.equal(unknown.calls.length, 0, 'unknown legacy product must be confirmed before any request');
 assert.equal(overlaps({ time: start + 120_000, high: 2, low: 1 }, start, start + 120_000, 1), false, 'candle beginning exactly at exit is excluded');
 assert.equal(coversHolding([{ time: start + 60_000, high: 2, low: 1 }], start, start + 120_000, 1), false, 'missing entry history is not silently accepted');
 assert.equal(coversHolding([{ time: start, high: 2, low: 1 }, { time: start + 120_000, high: 2, low: 1 }], start, start + 180_000, 1, 'us-stocks'), false, 'a missing bar inside the same session is not silently accepted');
@@ -80,6 +98,8 @@ const stock = context((url, init) => {
 });
 const stockResult = await historicalCandles(trade('2330', { market: 'tw-stocks', currency: 'TWD', timezone: 'Asia/Taipei', entryTime: '2026-09-21T09:30', exitTime: '2026-09-21T10:00' }), { fugle: key }, stock.ctx);
 assert.equal(stockResult.timeframe, '1h'); assert.ok(!JSON.stringify(stockResult).includes(key));
+const twThirty=context(url=>Response.json({symbol:'2330',data:url.searchParams.get('timeframe')==='30'?[{date:'2026-09-21T09:30:00+08:00',high:110,low:95}]:[]}));
+assert.equal((await historicalCandles(trade('2330',{market:'tw-stocks',currency:'TWD',timezone:'Asia/Taipei',entryTime:'2026-09-21T09:30',exitTime:'2026-09-21T10:00'}),{fugle:key},twThirty.ctx)).timeframe,'30m');
 assert.deepEqual(taiwanContract('TXFA6', 2025), { product: 'TXF', month: '202601' });
 assert.deepEqual(taiwanContract('MXFL9', 2030), { product: 'MXF', month: '202912' });
 assert.equal(taiwanContract('TXF1!', 2026), null, 'continuous contracts are not substituted');

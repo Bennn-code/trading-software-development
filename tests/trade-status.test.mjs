@@ -42,7 +42,7 @@ assert.equal(averageReturnPercent([trade('2026-09-21T10:00',10,0)]),null,'expect
 const rTrade=(id,netOverride,strategy='回測')=>({id,market:'crypto',currency:'USDT',exchangeSource:'bybit',symbol:'BTCUSDT',side:'long',entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',timezone:'Asia/Taipei',entry:100,exit:100,quantity:1,multiplier:1,positionValue:null,fees:null,funding:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null,feeMode:'paid',netOverride,profitBasis:'net',strategy,notes:''});
 assert.equal(chooseMaeMfeIntervalMinutes(30,300),1,'short holdings keep the 1-minute detail');
 assert.equal(chooseMaeMfeIntervalMinutes(500,300),5,'select the finest interval that stays within the request cap');
-assert.equal(chooseMaeMfeIntervalMinutes(5000,300),60,'long holdings move to a larger candle interval as needed');
+assert.equal(chooseMaeMfeIntervalMinutes(5000,300),30,'long holdings keep 30-minute detail when it fits the cap');
 assert.equal(chooseMaeMfeIntervalMinutes(360000,6000),240,'very long holdings use the largest supported interval when smaller candles exceed the request cap');
 assert.equal(maeMfeIntervalLabel(240),'4h');
 const oneMinuteWindow=maeMfeCandleWindow(Date.parse('2026-09-21T10:00:00Z'),Date.parse('2026-09-21T10:01:00Z'),1);
@@ -53,6 +53,7 @@ const fiveMinuteWindow=maeMfeCandleWindow(Date.parse('2026-09-21T10:01:00Z'),Dat
 assert.deepEqual([fiveMinuteWindow.start,fiveMinuteWindow.end],[Date.parse('2026-09-21T10:00:00Z'),Date.parse('2026-09-21T10:10:00Z')],'coarser windows include the entry/exit buckets but not the bucket starting exactly at exit');
 const expectedIntervals={bybit:['1','5','15','60','240'],bitget:['1m','5m','15m','1H','4H'],okx:['1m','5m','15m','1H','4H'],kucoin:['60','300','900','3600','14400'],bingx:['1m','5m','15m','1h','4h'],mexc:['Min1','Min5','Min15','Min60','Hour4'],binance:['1m','5m','15m','1h','4h']};
 for(const [provider,codes] of Object.entries(expectedIntervals))for(const [index,minutes] of [1,5,15,60,240].entries())assert.equal(maeMfeProviderInterval(provider,minutes),codes[index],`${provider} encodes ${minutes}m using its documented interval value`);
+for(const [provider,code] of Object.entries({bybit:'30',okx:'30m',binance:'30m',bingx:'30m'}))assert.equal(maeMfeProviderInterval(provider,30),code);
 const strategyStats=enteredStrategyStats([
  {...rTrade('strategy-1',10,'突破、回測'),market:'crypto'},
  {...rTrade('strategy-2',10,'突破;趨勢'),market:'crypto'},
@@ -63,6 +64,16 @@ assert.equal(hasEnteredStrategies(enteredStrategyStats([])),false,'strategy pref
 assert.equal(hasEnteredStrategies(strategyStats),true,'strategy preference card appears after a strategy is recorded');
 assert.deepEqual(Object.fromEntries(strategyStats.overall.map(row=>[row.name,[row.count,row.percent]])),{'突破':[3,60],'回測':[1,20],'趨勢':[1,20]},'strategy percentages count normalized distinct entries, not trades or empty fields');
 assert.equal(strategyStats.markets.find(row=>row.market==='crypto').count,4);
+const aliases=enteredStrategyStats([
+ {...rTrade('case-1',12,'mss、MSS、ＭＳＳ'),market:'crypto'},
+ {...rTrade('case-2',12,'Mss、趨勢、停損'),market:'futures'},
+ {...rTrade('case-3',12,'趋势、止损策略'),market:'crypto'},
+ {...rTrade('case-4',12,'突破、突破策略、突破回測'),market:'crypto'},
+]);
+assert.deepEqual(Object.fromEntries(aliases.overall.map(row=>[row.name,row.count])),{MSS:2,'趨勢':2,'停損':2,'突破':1,'突破回測':1},'case, full-width, Chinese scripts and exact aliases merge without merging distinct strategies');
+assert.equal(aliases.markets.find(row=>row.market==='crypto').rows.find(row=>row.name==='MSS').count,1,'aliases repeat at most once per trade and remain separated by market');
+assert.equal(calculateMaeMfe({...rTrade('notional',7),quantity:0,positionValue:200},[{high:110,low:95}]).mfe,20,'visible entry notional supplies crypto size even when base quantity is absent');
+assert.equal(calculateMaeMfe({...rTrade('unknown-size',7),quantity:0,positionValue:null},[{high:110,low:95}]),null,'unknown position size is never invented from realized profit');
 assert.equal(strategyStats.markets.find(row=>row.market==='us-stocks').rows[0].name,'突破');
 const excursion=calculateMaeMfe({...rTrade('mae-1',null),fees:1,entry:100,exit:105,quantity:2},[{high:110,low:95}]);
 assert.deepEqual({mae:excursion.mae,mfe:excursion.mfe,actual:excursion.actual},{mae:-10,mfe:20,actual:9},'MAE/MFE are excursions while actual result includes paid fees');
