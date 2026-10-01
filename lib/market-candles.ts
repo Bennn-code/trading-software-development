@@ -4,12 +4,13 @@ import { cryptoProductForTrade, type Trade } from './trades';
 
 export type QuoteKeys = { fugle?: string; twelveData?: string; databento?: string };
 type CryptoVenue = 'binance' | 'okx' | 'bybit' | 'bingx';
+export type CryptoQuoteSource = CryptoVenue | 'auto';
 type QuoteProvider = CryptoVenue | 'fugle' | 'twelve-data' | 'databento';
 export type PriceCandle = { time: number; high: number; low: number; end?: number };
-type Context = { fetch: typeof fetch; reserve: (provider: QuoteProvider) => Promise<void>; requests: number; maxRequests: number };
+type Context = { fetch: typeof fetch; reserve: (provider: QuoteProvider) => Promise<void>; requests: number; maxRequests: number; cryptoSource?: CryptoQuoteSource };
 export type CandleResult = { provider: string; timeframe: string; candles: PriceCandle[]; referenceSymbol: string; productType: string };
 export class QuoteError extends Error {
-  constructor(message: string, public stop = false, public retryable = false) { super(message); }
+  constructor(message: string, public stop = false, public retryable = false, public diagnostic?: { provider: string; status: number }) { super(message); }
 }
 export type CryptoCursor = { providerIndex: number; intervalIndex: number };
 export class QuoteBudgetError extends QuoteError {
@@ -82,26 +83,44 @@ function stockSession(time: number, zone: string, market: Trade['market']) {
   return market === 'us-stocks' ? clock >= 570 && clock <= 960 : market === 'tw-stocks' ? clock >= 540 && clock <= 810 : market === 'hk-stocks' ? (clock >= 570 && clock <= 720) || (clock >= 780 && clock <= 960) : (clock >= 570 && clock <= 690) || (clock >= 780 && clock <= 900);
 }
 
-async function request(ctx: Context, provider: QuoteProvider, url: URL, headers: Record<string, string> = {}, body?: URLSearchParams) {
+async function requestResponse(ctx: Context, provider: QuoteProvider, url: URL, headers: Record<string, string> = {}, body?: URLSearchParams) {
   const allowed = provider === 'binance' ? (url.hostname === 'fapi.binance.com' && url.pathname === '/fapi/v1/klines') || (url.hostname === 'api.binance.com' && url.pathname === '/api/v3/klines')
-    : provider === 'okx' ? url.hostname === 'www.okx.com' && url.pathname === '/api/v5/market/history-candles'
+    : provider === 'okx' ? url.hostname === 'openapi.okx.com' && url.pathname === '/api/v5/market/history-candles'
     : provider === 'bybit' ? url.hostname === 'api.bybit.com' && url.pathname === '/v5/market/kline'
     : provider === 'bingx' ? url.hostname === 'open-api.bingx.com' && ['/openApi/spot/v2/market/kline', '/openApi/swap/v3/quote/klines'].includes(url.pathname)
     : provider === 'fugle' ? url.hostname === 'api.fugle.tw' && /^\/marketdata\/v1\.0\/(stock|futopt)\/historical\/candles\/[A-Z0-9]+$/.test(url.pathname)
     : provider === 'twelve-data' ? url.hostname === 'api.twelvedata.com' && url.pathname === '/time_series'
     : url.hostname === 'hist.databento.com' && url.pathname === '/v0/timeseries.get_range';
-  if (!allowed || url.protocol !== 'https:' || url.port || url.username || url.password || (!!body !== (provider === 'databento'))) throw new QuoteError('行情查詢端點不在唯讀白名單內。', true);
-  if (ctx.requests >= ctx.maxRequests) throw new QuoteBudgetError();
-  ctx.requests++;
-  await ctx.reserve(provider);
+  if (!allowed || url.protocol !== 'https:' || url.port || url.username || url.password || url.hash || (!!body !== (provider === 'databento'))) throw new QuoteError('行情查詢端點不在唯讀白名單內。', true);
   let response: Response;
-  try {
-    response = await ctx.fetch(url, { method: body ? 'POST' : 'GET', headers: { accept: 'application/json', ...headers, ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, ...(body ? { body: body.toString() } : {}), cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(8000) });
-  } catch { throw new QuoteError('市場行情連線失敗或逾時，請稍後再試。', false, true); }
+  for (let attempt = 0; ; attempt++) {
+    if (ctx.requests >= ctx.maxRequests) throw new QuoteBudgetError();
+    ctx.requests++;
+    await ctx.reserve(provider);
+    try {
+      response = await ctx.fetch(url, { method: body ? 'POST' : 'GET', headers: { accept: 'application/json', ...headers, ...(body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, ...(body ? { body: body.toString() } : {}), cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(8000) });
+      break;
+    } catch {
+      // One delayed retry for transport failures, counted against the same budget.
+      // HTTP refusal/redirect responses never enter this retry path.
+      if (attempt === 0) { await new Promise(resolve => setTimeout(resolve, 1000)); continue; }
+      console.warn('market-quote-transport-failed', { provider });
+      throw new QuoteError('市場行情連線失敗或逾時，請稍後再試。', false, true);
+    }
+  }
   // Workers supports manual redirects. Never follow Location, particularly with API keys.
   if (response.status >= 300 && response.status < 400) throw new QuoteError('行情端點要求重新導向；為保護行情金鑰，已停止查詢。', true);
   // Do not route around authentication, IP bans, or provider throttling.
-  if ([401, 403, 418, 429].includes(response.status)) throw new QuoteError('行情供應商拒絕授權或限制查詢；已停止本次請求，請檢查金鑰、方案或稍後再試。', true);
+  if ([401, 403, 418, 429, 451].includes(response.status)) {
+    const diagnostic = { provider, status: response.status };
+    // Status and fixed supplier name only. Never log URLs, credentials or private trades.
+    console.warn('market-quote-refused', diagnostic);
+    const reason = response.status === 401 ? '行情金鑰驗證失敗，已停止查詢；請檢查金鑰。'
+      : response.status === 403 ? '行情來源拒絕存取，已停止查詢；可能涉及服務網路或方案權限。'
+      : response.status === 451 ? '行情來源在目前服務區域不可用，已停止查詢。'
+      : '行情來源暫時限流，已停止查詢；請稍後再試。';
+    throw new QuoteError(reason, true, false, diagnostic);
+  }
   if (response.status === 400 && provider === 'binance') {
     const data = parseJson(await readBoundedText(response, 16_000));
     if (data && !Array.isArray(data) && String(data.code) === '-1121') throw new InstrumentUnavailable('此來源沒有相同商品。');
@@ -109,6 +128,11 @@ async function request(ctx: Context, provider: QuoteProvider, url: URL, headers:
   }
   if ([400, 404, 422].includes(response.status)) return null;
   if (!response.ok) throw new QuoteError('行情供應商暫時無法提供資料。', false, true);
+  return response;
+}
+async function request(ctx: Context, provider: QuoteProvider, url: URL, headers: Record<string, string> = {}, body?: URLSearchParams) {
+  const response = await requestResponse(ctx, provider, url, headers, body);
+  if (!response) return null;
   try { return await readBoundedText(response, 1_500_000); } catch { throw new QuoteError('行情回應過大或格式無效，請縮短分析期間。', true); }
 }
 function parseJson(text: string | null): Record<string, unknown> | unknown[] | null {
@@ -123,7 +147,7 @@ async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, pro
     host = product === 'spot' ? 'api.binance.com' : 'fapi.binance.com'; path = product === 'spot' ? '/api/v3/klines' : '/fapi/v1/klines';
     params.set('symbol', `${base}USDT`); params.set('interval', code); params.set('startTime', String(start)); params.set('endTime', String(end - 1)); params.set('limit', String(limit));
   } else if (provider === 'okx') {
-    host = 'www.okx.com'; path = '/api/v5/market/history-candles';
+    host = 'openapi.okx.com'; path = '/api/v5/market/history-candles';
     params.set('instId', `${base}-USDT${product === 'perpetual' ? '-SWAP' : ''}`); params.set('bar', minutes === 1440 ? '1Dutc' : minutes >= 60 ? code.toUpperCase() : code); params.set('after', String(end)); params.set('limit', String(limit));
   } else if (provider === 'bybit') {
     host = 'api.bybit.com'; path = '/v5/market/kline';
@@ -157,8 +181,11 @@ async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, pro
 async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: number, cursor?: CryptoCursor): Promise<CandleResult | null> {
   const pair = cryptoPair(trade);
   if (!pair) throw new QuoteError('請確認加密商品是 USDT 現貨或永續合約，並填寫商品類型；不會用不同產品的價格代替。');
-  for (let providerIndex = cursor?.providerIndex ?? 0; providerIndex < cryptoOrder.length; providerIndex++) {
-    const provider = cryptoOrder[providerIndex];
+  // A user can start a new query at a selected supplier. Never switch away from a
+  // supplier that rejected the current query; automatic order still stops on bans.
+  const order = ctx.cryptoSource && ctx.cryptoSource !== 'auto' ? [ctx.cryptoSource] : cryptoOrder;
+  for (let providerIndex = cursor?.providerIndex ?? 0; providerIndex < order.length; providerIndex++) {
+    const provider = order[providerIndex];
     const limit = provider === 'okx' ? 300 : provider === 'binance' && pair.product === 'perpetual' ? 1500 : provider === 'bingx' ? 1440 : 1000;
     for (let intervalIndex = providerIndex === cursor?.providerIndex ? cursor.intervalIndex : 0; intervalIndex < intervals.length; intervalIndex++) {
       const minutes = intervals[intervalIndex];

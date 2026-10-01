@@ -17,6 +17,8 @@ export type Trade = {
   /** Optional excursions in the trade currency; MAE is stored as a negative amount. */
   mae?: number | null;
   mfe?: number | null;
+  /** Historical OHLC estimates imported with a snapshot of the calculation inputs. */
+  excursionEstimate?: { input: string; provider: string; timeframe: string; referenceSymbol: string; productType: string; candleCount: number; mae: number | null; mfe: number | null } | null;
   feeMode?: 'paid' | 'rebate'; commission?: number | null; transactionTax?: number | null;
   exchangeFee?: number | null; clearingFee?: number | null; settlementFee?: number | null; regulatoryFee?: number | null;
   secFee?: number | null; finraFee?: number | null; futuresTax?: number | null;

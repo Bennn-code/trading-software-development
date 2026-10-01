@@ -1,4 +1,5 @@
 'use client';
+import { editExcursions } from '@/lib/trade-excursions';
 import { useI18n } from './language-provider';
 import { useId, useState } from 'react';
 import DateTime24 from './date-time24';
@@ -37,9 +38,10 @@ export function CalculationSummary({trade:t}:{trade:Trade}) {
  </div>;
 }
 
-export default function TradeFields({trade:t,onChange,notes=true}:{trade:Trade;onChange:(t:Trade)=>void;notes?:boolean}) {
+export default function TradeFields({trade:t,onChange:commit,notes=true}:{trade:Trade;onChange:(t:Trade)=>void;notes?:boolean}) {
  const {t:tx}=useI18n();
  const uid=useId(),[profitText,setProfitText]=useState(t.netOverride===null?'':String(t.netOverride)),[fundingDirection,setFundingDirection]=useState((t.funding??0)<0?'received':'paid');
+ const onChange=(next:Trade)=>commit(editExcursions(t,next));
  const set=<K extends keyof Trade>(key:K,value:Trade[K])=>onChange({...t,[key]:value});
  const tradeTimezone=t.timezone??'Asia/Taipei',timezoneLabel=`${tx(timezoneName(tradeTimezone))} · ${utcOffsetLabel(tradeTimezone,new Date(`${t.entryTime.slice(0,10)}T12:00:00Z`))}`;
  function numeric(key:NumberField,value:number|null) {

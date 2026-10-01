@@ -8,7 +8,7 @@ import { enforceRateLimit } from '@/lib/security';
 // Secrets are request-scoped: never persisted, echoed, cached or logged.
 const key = z.string().trim().min(8).max(200).regex(/^[A-Za-z0-9_.-]+$/).optional();
 const cursorSchema = z.object({ providerIndex: z.number().int().min(0).max(3), intervalIndex: z.number().int().min(0).max(6) }).strict();
-const inputSchema = z.object({ trades: z.array(tradeSchema).min(1).max(3), resume: z.record(z.string().uuid(), cursorSchema).optional(), quoteKeys: z.object({ fugle: key, twelveData: key, databento: key }).strict().optional() }).strict().refine(input => Object.keys(input.resume ?? {}).every(id => input.trades.some(trade => trade.id === id && trade.market === 'crypto')));
+const inputSchema = z.object({ trades: z.array(tradeSchema).min(1).max(3), cryptoSource: z.enum(['auto', 'binance', 'okx', 'bybit', 'bingx']).default('auto'), resume: z.record(z.string().uuid(), cursorSchema).optional(), quoteKeys: z.object({ fugle: key, twelveData: key, databento: key }).strict().optional() }).strict().refine(input => Object.entries(input.resume ?? {}).every(([id,cursor]) => input.trades.some(trade => trade.id === id && trade.market === 'crypto') && (input.cryptoSource === 'auto' || cursor.providerIndex === 0)));
 async function reserveOutboundSlot(provider: string) {
   const bucket = `market-candle-egress:${provider}`;
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -26,8 +26,8 @@ export async function POST(request: Request) {
     await enforceRateLimit(request, { scope: 'trade-status-mae-mfe', limit: 60, ipLimit: 240, windowSeconds: 3600, subject: owner });
     const parsed = inputSchema.safeParse(await readJson(request, 32_000));
     if (!parsed.success) throw new ApiError('每次分析最多三筆有效交易；請檢查交易欄位與行情金鑰格式。');
-    const rows = [], skipped: { id: string; reason: string; retryable?: boolean }[] = [], deferred: { id: string; resume?: CryptoCursor }[] = [], completed: string[] = [];
-    const context = { fetch, reserve: reserveOutboundSlot, requests: 0, maxRequests: 32 };
+    const rows = [], skipped: { id: string; reason: string; retryable?: boolean; diagnostic?: { provider: string; status: number } }[] = [], deferred: { id: string; resume?: CryptoCursor }[] = [], completed: string[] = [];
+    const context = { fetch, reserve: reserveOutboundSlot, requests: 0, maxRequests: 32, cryptoSource: parsed.data.cryptoSource };
     let stopped = false, budgetExhausted = false;
     for (const trade of parsed.data.trades) {
       if (budgetExhausted || stopped) { deferred.push({ id: trade.id, resume: parsed.data.resume?.[trade.id] }); continue; }
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
         if (!(error instanceof QuoteError)) throw error;
         if (error instanceof QuoteBudgetError) { deferred.push({ id: trade.id, resume: error.cursor ?? parsed.data.resume?.[trade.id] }); budgetExhausted = true; continue; }
         const retryable = error.stop || error.retryable;
-        skipped.push({ id: trade.id, reason: error.message, retryable }); stopped = retryable;
+        skipped.push({ id: trade.id, reason: error.message, retryable, ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}) }); stopped = retryable;
         if (!retryable) completed.push(trade.id);
       }
     }

@@ -88,6 +88,10 @@ assert.notEqual(maeMfeFingerprint([{...fingerprintSource,multiplier:2}]),fingerp
 const concentration=profitConcentration([rTrade('p1',100),rTrade('p2',-50),rTrade('p3',50)]);
 assert.deepEqual(concentration.map(row=>row.cumulativeNet),[100,150,100],'bar values accumulate ranked net P&L, not individual results');
 assert.equal(concentration.at(-1).cumulativeNet,100,'the final cumulative bar matches total realized P&L');
+assert.deepEqual(concentration.map(row=>row.signedCumulative),[100,150,-50],'winning and losing bars accumulate separately; losses stay below zero even when the period is profitable');
+const split=profitConcentration([rTrade('sp1',80),rTrade('sp2',-40),rTrade('sp3',-10),rTrade('sp4',0)]);
+assert.deepEqual(split.map(row=>row.signedCumulative),[80,0,-10,-50]);
+assert.equal(split.at(-1).cumulativeNet,30);assert.equal(split[0].signedCumulative+split.at(-1).signedCumulative,30,'signed gain and loss totals reconcile with period net P&L');
 assert.equal(concentration[0].trade.id,'p1');assert.ok(Math.abs(concentration[0].profitShare-100*2/3)<1e-10);assert.ok(Math.abs(concentration[0].cumulativeProfitShare-100*2/3)<1e-10);
 assert.ok(Math.abs(concentration[1].profitShare-100/3)<1e-10);assert.equal(concentration[1].cumulativeProfitShare,100);
 assert.equal(concentration[2].lossShare,100);assert.equal(concentration[2].cumulativeLossShare,100,'loss shares use their own absolute-loss denominator');

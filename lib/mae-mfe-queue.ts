@@ -1,6 +1,6 @@
 import type { CryptoCursor } from './market-candles';
 
-export type MaeMfeSkip = { id: string; reason: string; retryable?: boolean };
+export type MaeMfeSkip = { id: string; reason: string; retryable?: boolean; diagnostic?: { provider: string; status: number } };
 export type MaeMfeQueueState<Row extends { id: string }> = { rows: Row[]; skipped: MaeMfeSkip[]; attempted: string[]; resume: Record<string, CryptoCursor> };
 export type MaeMfeBatch<Row extends { id: string }> = { rows: Row[]; skipped: MaeMfeSkip[]; completed: string[]; deferred: { id: string; resume?: CryptoCursor }[]; stopped: boolean };
 

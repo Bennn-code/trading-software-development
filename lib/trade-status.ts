@@ -96,15 +96,15 @@ export function lossRecoveryStats(trades:Trade[]):LossRecoveryStat[]{
  }).sort((a,b)=>a.market.localeCompare(b.market)||a.currency.localeCompare(b.currency));
 }
 
-export type ProfitConcentrationPoint={index:number;trade:Trade;net:number;cumulativeNet:number;profitShare:number|null;cumulativeProfitShare:number|null;lossShare:number|null;cumulativeLossShare:number|null};
+export type ProfitConcentrationPoint={index:number;trade:Trade;net:number;cumulativeNet:number;signedCumulative:number;profitShare:number|null;cumulativeProfitShare:number|null;lossShare:number|null;cumulativeLossShare:number|null};
 export function profitConcentration(trades:Trade[]):ProfitConcentrationPoint[]{
  const ordered=[...trades].map(trade=>({trade,net:pnl(trade)})).filter(item=>Number.isFinite(item.net)).sort((a,b)=>b.net-a.net||a.trade.exitTime.localeCompare(b.trade.exitTime));
  const positiveTotal=ordered.reduce((sum,item)=>sum+Math.max(0,item.net),0),negativeTotal=ordered.reduce((sum,item)=>sum+Math.max(0,-item.net),0);let cumulativeProfit=0,cumulativeLoss=0,cumulativeNet=0;
  return ordered.map((item,index)=>{
   cumulativeNet+=item.net;
-  if(item.net>0){cumulativeProfit+=item.net;return{index:index+1,trade:item.trade,net:item.net,cumulativeNet,profitShare:positiveTotal>0?item.net/positiveTotal*100:null,cumulativeProfitShare:positiveTotal>0?cumulativeProfit/positiveTotal*100:null,lossShare:null,cumulativeLossShare:negativeTotal>0?0:null};}
-  if(item.net<0){const loss=Math.abs(item.net);cumulativeLoss+=loss;return{index:index+1,trade:item.trade,net:item.net,cumulativeNet,profitShare:null,cumulativeProfitShare:positiveTotal>0?100:null,lossShare:negativeTotal>0?loss/negativeTotal*100:null,cumulativeLossShare:negativeTotal>0?cumulativeLoss/negativeTotal*100:null};}
-  return{index:index+1,trade:item.trade,net:item.net,cumulativeNet,profitShare:null,cumulativeProfitShare:positiveTotal>0?cumulativeProfit/positiveTotal*100:null,lossShare:null,cumulativeLossShare:negativeTotal>0?0:null};
+  if(item.net>0){cumulativeProfit+=item.net;return{index:index+1,trade:item.trade,net:item.net,cumulativeNet,signedCumulative:cumulativeProfit,profitShare:positiveTotal>0?item.net/positiveTotal*100:null,cumulativeProfitShare:positiveTotal>0?cumulativeProfit/positiveTotal*100:null,lossShare:null,cumulativeLossShare:negativeTotal>0?0:null};}
+  if(item.net<0){const loss=Math.abs(item.net);cumulativeLoss+=loss;return{index:index+1,trade:item.trade,net:item.net,cumulativeNet,signedCumulative:-cumulativeLoss,profitShare:null,cumulativeProfitShare:positiveTotal>0?100:null,lossShare:negativeTotal>0?loss/negativeTotal*100:null,cumulativeLossShare:negativeTotal>0?cumulativeLoss/negativeTotal*100:null};}
+  return{index:index+1,trade:item.trade,net:item.net,cumulativeNet,signedCumulative:0,profitShare:null,cumulativeProfitShare:positiveTotal>0?cumulativeProfit/positiveTotal*100:null,lossShare:null,cumulativeLossShare:negativeTotal>0?0:null};
  });
 }
 
