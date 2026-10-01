@@ -1,4 +1,4 @@
-import { isFuturesMarket, pnl,type Trade } from './trades';
+import { cryptoExcursionPosition, isFuturesMarket, pnl,type ExcursionTime,type Trade } from './trades';
 import { convertWallTime } from './display-currency';
 import { Converter } from 'opencc-js/t2cn';
 
@@ -108,7 +108,7 @@ export function profitConcentration(trades:Trade[]):ProfitConcentrationPoint[]{
  });
 }
 
-export type CandleRange={high:number;low:number};
+export type CandleRange={high:number;low:number;time?:number;end?:number};
 export type MaeMfeProvider='bybit'|'bitget'|'okx'|'kucoin'|'bingx'|'mexc'|'binance';
 export const maeMfeIntervals=[
  {minutes:1,label:'1m'},
@@ -141,14 +141,35 @@ export function maeMfeCandleWindow(entryMs:number,exitMs:number,intervalMinutes:
 }
 export function maeMfeCandleInWindow(candleTime:number,window:MaeMfeCandleWindow){return Number.isFinite(candleTime)&&candleTime>=window.start&&candleTime<=window.end;}
 export function maeMfeFingerprint(trades:Trade[]){
- return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.cryptoProductType,trade.priceSymbol,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.mae,trade.mfe,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+ return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.cryptoProductType,trade.priceSymbol,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.positionSizing,trade.marginAmount,trade.leverage,trade.marginMode,trade.mae,trade.mfe,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
 }
 export type MaeMfeTrade=Pick<Trade,'market'|'entry'|'exit'|'quantity'|'side'|'multiplier'>&Partial<Trade>;
-export function calculateMaeMfe(trade:MaeMfeTrade,candles:CandleRange[]){
- const size=trade.market==='crypto'&&trade.positionValue!=null?(trade.entry>0?trade.positionValue/trade.entry:0):trade.quantity;
+function extremeTime(trade:MaeMfeTrade,candles:CandleRange[],price:number,field:'high'|'low',intervalMinutes?:number):ExcursionTime|null{
+ if(!trade.entryTime||!trade.exitTime)return null;
+ const entry=utcMillis(trade.entryTime,trade.timezone),exit=utcMillis(trade.exitTime,trade.timezone);
+ if(!Number.isFinite(entry)||!Number.isFinite(exit)||exit<=entry)return null;
+ const bucket=candles.filter(candle=>candle[field]===price&&Number.isFinite(candle.time)).sort((a,b)=>a.time!-b.time!)[0];
+ if(!bucket)return null; // No timestamp is invented for a manual metric or an entry/exit-only extremum.
+ const bucketEnd=bucket.end??(intervalMinutes&&intervalMinutes>0?bucket.time!+intervalMinutes*60000:NaN);
+ if(!Number.isFinite(bucketEnd)||bucketEnd<=bucket.time!)return null;
+ const start=bucket.time!,end=bucketEnd;
+ if(end<=start)return null;
+ return{start,end,elapsedStartMinutes:(start-entry)/60000,elapsedEndMinutes:(end-entry)/60000};
+}
+export function calculateMaeMfe(trade:MaeMfeTrade,candles:CandleRange[],intervalMinutes?:number){
+ const cryptoPosition=trade.market==='crypto'?cryptoExcursionPosition(trade):null;
+ const size=trade.market==='crypto'?cryptoPosition?.quantity??0:trade.quantity;
  if(!candles.length||candles.some(candle=>!Number.isFinite(candle.high)||!Number.isFinite(candle.low)||candle.high<candle.low)||!Number.isFinite(size)||size<=0||!Number.isFinite(trade.entry)||trade.entry<=0||!Number.isFinite(trade.exit)||trade.exit<=0||isFuturesMarket(trade.market)&&(!Number.isFinite(trade.multiplier)||trade.multiplier<=0))return null;
- const high=Math.max(trade.entry,trade.exit,...candles.map(candle=>candle.high)),low=Math.min(trade.entry,trade.exit,...candles.map(candle=>candle.low)),quantity=(trade.market==='crypto'&&trade.positionValue!=null?(trade.entry>0?trade.positionValue/trade.entry:0):trade.quantity)*(isFuturesMarket(trade.market)?trade.multiplier:1);
+ const high=Math.max(trade.entry,trade.exit,...candles.map(candle=>candle.high)),low=Math.min(trade.entry,trade.exit,...candles.map(candle=>candle.low)),quantity=size*(isFuturesMarket(trade.market)?trade.multiplier:1);
  const mae=Math.min(0,trade.side==='long'?(low-trade.entry)*quantity:(trade.entry-high)*quantity);
  const mfe=Math.max(0,trade.side==='long'?(high-trade.entry)*quantity:(trade.entry-low)*quantity);
- return{mae,mfe,actual:pnl(trade as Trade),candleCount:candles.length};
+ if(!Number.isFinite(mae)||!Number.isFinite(mfe))return null;
+ return{mae,mfe,actual:pnl(trade as Trade),candleCount:candles.length,calculationVersion:2 as const,sizeBasis:cryptoPosition?.basis??(isFuturesMarket(trade.market)?'contracts' as const:'shares' as const),maeTime:mae<0?extremeTime(trade,candles,trade.side==='long'?low:high,trade.side==='long'?'low':'high',intervalMinutes):null,mfeTime:mfe>0?extremeTime(trade,candles,trade.side==='long'?high:low,trade.side==='long'?'high':'low',intervalMinutes):null};
+}
+export type ExcursionStatRow={trade:Trade;mae:number|null;mfe:number|null};
+/** Per-trade ratios can be averaged across currencies without mixing monetary totals. */
+export function excursionPerformance(rows:ExcursionStatRow[]){
+ const samples=rows.filter(row=>row.mfe!==null&&Number.isFinite(row.mfe)&&row.mfe>0&&Number.isFinite(pnl(row.trade)));
+ const retention=samples.map(row=>pnl(row.trade)/row.mfe!*100).filter(Number.isFinite),turnedLossCount=samples.filter(row=>pnl(row.trade)<0).length;
+ return{profitRetention:retention.length?retention.reduce((sum,value)=>sum+value,0)/retention.length:null,retentionSamples:retention.length,turnedLossRate:samples.length?turnedLossCount/samples.length*100:null,positiveExcursionSamples:samples.length,turnedLossCount};
 }

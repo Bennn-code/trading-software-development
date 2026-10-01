@@ -1,3 +1,8 @@
+/** An OHLC bucket containing an excursion; never an exact intrabar timestamp. */
+export type ExcursionTime = { start: number; end: number; elapsedStartMinutes: number; elapsedEndMinutes: number };
+export type PositionSizing = 'notional' | 'base-quantity' | 'margin';
+export type ExcursionSizeBasis = PositionSizing | 'contracts' | 'shares';
+export type ExcursionEstimate = { input: string; provider: string; timeframe: string; referenceSymbol: string; productType: string; candleCount: number; mae: number | null; mfe: number | null; calculationVersion?: number; sizeBasis?: ExcursionSizeBasis; maeTime?: ExcursionTime | null; mfeTime?: ExcursionTime | null };
 export type Trade = {
   id: string; market: 'futures' | 'tw-index-futures' | 'crypto' | 'us-stocks' | 'tw-stocks' | 'cn-stocks' | 'hk-stocks'; symbol: string; side: 'long' | 'short';
   account: string; currency: 'USD' | 'USDT' | 'TWD' | 'CNY' | 'HKD'; entryTime: string; exitTime: string;
@@ -6,6 +11,10 @@ export type Trade = {
   funding: number | null; strategy: string; notes: string; imageId: string | null;
   netOverride: number | null;
   positionValue?: number | null; leverage?: number | null;
+  /** Position-specific initial margin at entry, not total wallet collateral. */
+  marginAmount?: number | null;
+  /** Explicit units used for historical excursion estimation. */
+  positionSizing?: PositionSizing | null;
   marginMode?: 'cross' | 'isolated' | null; profitBasis?: 'net' | 'gross';
   /** Optional public-candle source used only for historical MAE/MFE analysis. */
   exchangeSource?: 'bybit' | 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc' | 'binance' | null;
@@ -18,7 +27,8 @@ export type Trade = {
   mae?: number | null;
   mfe?: number | null;
   /** Historical OHLC estimates imported with a snapshot of the calculation inputs. */
-  excursionEstimate?: { input: string; provider: string; timeframe: string; referenceSymbol: string; productType: string; candleCount: number; mae: number | null; mfe: number | null } | null;
+  excursionEstimate?: ExcursionEstimate | null;
+  excursionScan?: import('./mae-mfe-state').ExcursionScan | null;
   feeMode?: 'paid' | 'rebate'; commission?: number | null; transactionTax?: number | null;
   exchangeFee?: number | null; clearingFee?: number | null; settlementFee?: number | null; regulatoryFee?: number | null;
   secFee?: number | null; finraFee?: number | null; futuresTax?: number | null;
@@ -36,7 +46,25 @@ export const isFuturesMarket = (market:string):market is 'futures'|'tw-index-fut
 export function multiplierForSymbol(symbol:string,fallback=1){const root=Object.keys(multipliers).sort((a,b)=>b.length-a.length).find(key=>symbol.trim().toUpperCase().startsWith(key));return root?multipliers[root]:fallback;}
 export function parseSignedAmount(text:string):number|null { const value=text.trim().replaceAll('＋','+').replaceAll('−','-').replaceAll('－','-'); if(!value)return null; if(!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value))return NaN; return Number(value.replaceAll(',','')); }
 export function positionValue(t:Trade) { return t.positionValue ?? t.entry*t.quantity; }
-export function initialMargin(t:Trade) { return t.market==='crypto'&&t.leverage&&t.leverage>0&&positionValue(t)>0 ? positionValue(t)/t.leverage : null; }
+export function initialMargin(t:Trade) { return t.market==='crypto'&&Number.isFinite(t.marginAmount)&&t.marginAmount!>0?t.marginAmount!:t.market==='crypto'&&t.leverage&&t.leverage>0&&positionValue(t)>0 ? positionValue(t)/t.leverage : null; }
+/** Linear USDT sizing. Leverage affects notional only when deriving size from entry margin. */
+export function cryptoExcursionPosition(t:Pick<Trade,'market'|'entry'|'quantity'>&Partial<Trade>):{quantity:number;notional:number;basis:PositionSizing}|null{
+ if(t.market!=='crypto'||!Number.isFinite(t.entry)||t.entry<=0)return null;
+ const mode=t.positionSizing;
+ // Legacy quantity may be contracts, quote money or base units. Do not infer its units.
+ if(!mode)return null;
+ let quantity:number,notional:number;
+ if(mode==='margin'){
+  if(t.currency!=='USDT'||cryptoProductForTrade(t as Trade)!=='perpetual'||!t.marginMode||!Number.isFinite(t.marginAmount)||t.marginAmount!<=0||!Number.isFinite(t.leverage)||t.leverage!<1||t.leverage!>1000)return null;
+  notional=t.marginAmount!*t.leverage!;quantity=notional/t.entry;
+ }else if(mode==='notional'){
+  if(!Number.isFinite(t.positionValue)||t.positionValue!<=0)return null;
+  notional=t.positionValue!;quantity=notional/t.entry;
+ }else{
+  quantity=t.quantity;notional=quantity*t.entry;
+ }
+ return Number.isFinite(quantity)&&quantity>0&&Number.isFinite(notional)&&notional>0?{quantity,notional,basis:mode}:null;
+}
 export function grossPnl(t:Trade) { const qty=t.market==='crypto'&&t.positionValue!=null?(t.entry>0?t.positionValue/t.entry:0):t.quantity; return (t.exit-t.entry)*(t.side==='long'?1:-1)*qty*(isFuturesMarket(t.market)?t.multiplier:1); }
 export function feeCost(t:Trade) { return (t.feeMode==='rebate'?-1:1)*Math.abs(t.fees??0); }
 export function feeAmountForDisplay(amount:number,direction:'paid'|'rebate'|'funding'='paid'){if(direction==='funding')return -amount;return direction==='rebate'?Math.abs(amount):-Math.abs(amount);}

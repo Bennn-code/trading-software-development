@@ -72,14 +72,14 @@ const aliases=enteredStrategyStats([
 ]);
 assert.deepEqual(Object.fromEntries(aliases.overall.map(row=>[row.name,row.count])),{MSS:2,'趨勢':2,'停損':2,'突破':1,'突破回測':1},'case, full-width, Chinese scripts and exact aliases merge without merging distinct strategies');
 assert.equal(aliases.markets.find(row=>row.market==='crypto').rows.find(row=>row.name==='MSS').count,1,'aliases repeat at most once per trade and remain separated by market');
-assert.equal(calculateMaeMfe({...rTrade('notional',7),quantity:0,positionValue:200},[{high:110,low:95}]).mfe,20,'visible entry notional supplies crypto size even when base quantity is absent');
+assert.equal(calculateMaeMfe({...rTrade('notional',7),quantity:0,positionValue:200,positionSizing:'notional'},[{high:110,low:95}]).mfe,20,'confirmed entry notional supplies crypto size even when base quantity is absent');
 assert.equal(calculateMaeMfe({...rTrade('unknown-size',7),quantity:0,positionValue:null},[{high:110,low:95}]),null,'unknown position size is never invented from realized profit');
 assert.equal(strategyStats.markets.find(row=>row.market==='us-stocks').rows[0].name,'突破');
-const excursion=calculateMaeMfe({...rTrade('mae-1',null),fees:1,entry:100,exit:105,quantity:2},[{high:110,low:95}]);
+const excursion=calculateMaeMfe({...rTrade('mae-1',null),positionSizing:'base-quantity',fees:1,entry:100,exit:105,quantity:2},[{high:110,low:95}]);
 assert.deepEqual({mae:excursion.mae,mfe:excursion.mfe,actual:excursion.actual},{mae:-10,mfe:20,actual:9},'MAE/MFE are excursions while actual result includes paid fees');
-const shortExcursion=calculateMaeMfe({...rTrade('mae-2',null),side:'short',entry:100,exit:95,quantity:2},[{high:104,low:90}]);
+const shortExcursion=calculateMaeMfe({...rTrade('mae-2',null),positionSizing:'base-quantity',side:'short',entry:100,exit:95,quantity:2},[{high:104,low:90}]);
 assert.deepEqual({mae:shortExcursion.mae,mfe:shortExcursion.mfe},{mae:-8,mfe:20},'short-side adverse/favorable movement uses reversed signs');
-const positionValueExcursion=calculateMaeMfe({...rTrade('mae-3',null),positionValue:1000,entry:100,quantity:1},[{high:101,low:99}]);
+const positionValueExcursion=calculateMaeMfe({...rTrade('mae-3',null),positionSizing:'notional',positionValue:1000,entry:100,quantity:1},[{high:101,low:99}]);
 assert.deepEqual({mae:positionValueExcursion.mae,mfe:positionValueExcursion.mfe},{mae:-10,mfe:10},'crypto excursion size follows saved position value like crypto P&L');
 const fingerprintSource=rTrade('fingerprint',3),fingerprint=maeMfeFingerprint([fingerprintSource]);
 assert.notEqual(maeMfeFingerprint([{...fingerprintSource,side:'short'}]),fingerprint,'changing the trade side invalidates cached MAE/MFE');

@@ -12,10 +12,10 @@ function load(name) {
   vm.runInThisContext(`(function(require,module,exports){${code}})`)(path => path.startsWith('./') ? load(path.slice(2)) : require(path), compiledModule, compiledModule.exports);
   return compiledModule.exports;
 }
-const { historicalCandles, cryptoPair, taiwanContract, coversHolding, overlaps, QuoteError, QuoteBudgetError, utcTradeTime } = load('market-candles');
+const { historicalCandles, cryptoPair, taiwanContract, coversHolding, overlaps, QuoteError, QuoteBudgetError, utcTradeTime, normalizeCryptoCursor } = load('market-candles');
 const { calculateMaeMfe } = load('trade-status');
 const { tradeSchema } = load('validation');
-const trade = (symbol, patch = {}) => ({ id: crypto.randomUUID(), market: 'crypto', currency: 'USDT', cryptoProductType: 'perpetual', symbol, side: 'long', account: 'test', timezone: 'UTC', entryTime: '2026-09-21T10:00', exitTime: '2026-09-21T10:02', entry: 100, exit: 103, quantity: 2, multiplier: 1, fees: null, funding: null, strategy: '', notes: '', imageId: null, netOverride: null, ...patch });
+const trade = (symbol, patch = {}) => ({ id: crypto.randomUUID(), market: 'crypto', currency: 'USDT', cryptoProductType: 'perpetual', positionSizing: 'base-quantity', symbol, side: 'long', account: 'test', timezone: 'UTC', entryTime: '2026-09-21T10:00', exitTime: '2026-09-21T10:02', entry: 100, exit: 103, quantity: 2, multiplier: 1, fees: null, funding: null, strategy: '', notes: '', imageId: null, netOverride: null, ...patch });
 function context(handler, maxRequests = 24) {
   const calls = [], reserved = [];
   const ctx = { requests: 0, maxRequests, reserve: async provider => reserved.push(provider), fetch: async (url, init) => { calls.push({ url: new URL(url), init }); return handler(new URL(url), init); } };
@@ -24,23 +24,26 @@ function context(handler, maxRequests = 24) {
 const start = Date.parse('2026-09-21T10:00:00Z');
 const rows = [[start, '100', '104', '98'], [start + 60_000, '102', '106', '99']];
 let transportAttempts=0;
-const temporaryTransport=context(()=>{if(++transportAttempts===1)throw new TypeError('Temporary transport failure');return Response.json(rows);});
+const temporaryTransport=context(()=>{if(++transportAttempts===1)throw new TypeError('Temporary transport failure');return Response.json({code:0,data:rows});});
 assert.equal((await historicalCandles(trade('RETRYUSDT'),{},temporaryTransport.ctx))?.candles.length,2);
 assert.equal(temporaryTransport.calls.length,2);assert.equal(temporaryTransport.ctx.requests,2);
-assert.deepEqual(temporaryTransport.reserved,['binance','binance']);
+assert.deepEqual(temporaryTransport.reserved,['okx','okx']);
 const failedTransport=context(()=>{throw new TypeError('Transport unavailable');});
 await assert.rejects(()=>historicalCandles(trade('FAILUSDT'),{},failedTransport.ctx),error=>error instanceof QuoteError&&error.retryable);
 assert.equal(failedTransport.calls.length,2);assert.equal(new Set(failedTransport.calls.map(call=>call.url.hostname)).size,1);
 const transportBudget=context(()=>{throw new TypeError('Transport unavailable');},1);
 await assert.rejects(()=>historicalCandles(trade('CAPUSDT'),{},transportBudget.ctx),error=>error instanceof QuoteBudgetError);
 assert.equal(transportBudget.calls.length,1);
-const fixture = context(() => Response.json(rows));
+const fixture = context(() => Response.json({code:0,data:rows}));
 const first = await historicalCandles(trade('ALPHAUSDT'), {}, fixture.ctx);
-assert.equal(first.provider, 'binance'); assert.equal(first.timeframe, '1m');
-assert.equal(fixture.calls[0].url.hostname, 'fapi.binance.com');
-assert.equal(fixture.calls[0].url.pathname, '/fapi/v1/klines');
+assert.equal(first.provider, 'okx'); assert.equal(first.timeframe, '1m');
+assert.equal(fixture.calls[0].url.hostname, 'openapi.okx.com');
+assert.equal(fixture.calls[0].url.pathname, '/api/v5/market/history-candles');
 assert.equal(fixture.calls[0].init.method, 'GET'); assert.equal(fixture.calls[0].init.redirect, 'manual');
-assert.deepEqual(calculateMaeMfe(trade('ALPHAUSDT'), first.candles), { mae: -4, mfe: 12, actual: 6, candleCount: 2 });
+const firstExcursion=calculateMaeMfe(trade('ALPHAUSDT'), first.candles);
+assert.deepEqual({mae:firstExcursion.mae,mfe:firstExcursion.mfe,actual:firstExcursion.actual,candleCount:firstExcursion.candleCount}, { mae: -4, mfe: 12, actual: 6, candleCount: 2 });
+assert.equal(first.intervalMinutes,1);assert.equal(first.candles[0].end,start+60_000);
+assert.equal(first.cryptoScan.version,2);assert.deepEqual(first.cryptoScan.scanned,[{provider:'okx',timeframe:'1m'}]);
 const redirected=context(()=>new Response('',{status:302,headers:{location:'https://attacker.invalid/steal'}}));
 await assert.rejects(historicalCandles(trade('REDIRECTUSDT'),{},redirected.ctx),error=>error instanceof QuoteError&&error.stop&&error.message.includes('重新導向'));
 assert.equal(redirected.calls.length,1,'redirects are rejected without following a destination or trying another venue');
@@ -50,10 +53,11 @@ assert.equal(secretRedirect.calls.length,1);assert.equal(secretRedirect.calls[0]
 await historicalCandles(trade('ALPHAUSDT'), {}, fixture.ctx);
 assert.equal(fixture.calls.length, 1, 'public reference candles reuse a bounded cache');
 
-const spot = context(() => Response.json(rows));
+const spot = context(() => Response.json({code:0,data:rows}));
 await historicalCandles(trade('SPOTUSDT', { cryptoProductType: 'spot' }), {}, spot.ctx);
-assert.equal(spot.calls[0].url.hostname, 'api.binance.com');
-assert.equal(spot.calls[0].url.pathname, '/api/v3/klines');
+assert.equal(spot.calls[0].url.hostname, 'openapi.okx.com');
+assert.equal(spot.calls[0].url.searchParams.get('instId'), 'SPOT-USDT');
+assert.equal(fixture.calls[0].url.searchParams.get('instId'),'ALPHA-USDT-SWAP');
 assert.equal(cryptoPair(trade('BTC-USD')), null, 'USD/inverse is not rewritten to USDT');
 assert.equal(cryptoPair(trade('BTCUSDT', { currency: 'USD' })), null);
 assert.deepEqual(cryptoPair(trade('1000PEPE-USDT-SWAP')), { base: '1000PEPE', product: 'perpetual' });
@@ -61,31 +65,30 @@ assert.equal(cryptoPair(trade('BTCUSDT', { exchangeSource: 'bybit', cryptoProduc
 assert.equal(cryptoPair(trade('BTCUSDT', { exchangeSource: 'bybit', cryptoProductType: undefined })), null, 'a venue alone cannot establish spot or perpetual product type');
 
 const fallback = context(url => {
-  if (url.hostname === 'fapi.binance.com') return Response.json([]);
   if (url.hostname === 'openapi.okx.com') return Response.json({ code: '0', data: [] });
   if (url.hostname === 'api.bybit.com') return Response.json({ retCode: 0, result: { list: [] } });
   return Response.json({ code: 0, data: rows });
 });
 const fallbackResult = await historicalCandles(trade('1000PEPEUSDT'), {}, fallback.ctx);
 assert.equal(fallbackResult.provider, 'bingx');
-assert.deepEqual([...new Set(fallback.calls.map(call => call.url.hostname))], ['fapi.binance.com', 'openapi.okx.com', 'api.bybit.com', 'open-api.bingx.com']);
+assert.deepEqual([...new Set(fallback.calls.map(call => call.url.hostname))], ['openapi.okx.com', 'api.bybit.com', 'open-api.bingx.com']);
 assert.equal(fallback.calls.at(-1).url.searchParams.get('symbol'), '1000PEPE-USDT');
-const coarse = context(url => Response.json(url.searchParams.get('interval') === '1m' ? [rows[1]] : [rows[0]]));
+const coarse = context(url => Response.json({code:0,data:url.searchParams.get('bar') === '1m' ? [rows[1]] : [rows[0]]}));
 assert.equal((await historicalCandles(trade('COARSEUSDT'), {}, coarse.ctx)).timeframe, '5m', 'partial minute history is rejected before trying a complete coarser bucket');
-const thirty=context(url=>Response.json(url.searchParams.get('interval')==='30m'?[[start,'100','110','95']]:[]));
+const thirty=context(url=>Response.json({code:0,data:url.searchParams.get('bar')==='30m'?[[start,'100','110','95']]:[]}));
 assert.equal((await historicalCandles(trade('THIRTYUSDT'),{},thirty.ctx)).timeframe,'30m','missing finer candles fall back to a complete 30-minute bar');
-assert.deepEqual(thirty.calls.map(call=>call.url.searchParams.get('interval')),['1m','5m','15m','30m']);
+assert.deepEqual(thirty.calls.map(call=>call.url.searchParams.get('bar')),['1m','5m','15m','30m']);
 for (const venue of ['okx', 'bybit', 'bingx']) {
  const later=context(url=>{
-  const name=url.hostname.includes('binance')?'binance':url.hostname.includes('okx')?'okx':url.hostname.includes('bybit')?'bybit':'bingx';
+  const name=url.hostname.includes('okx')?'okx':url.hostname.includes('bybit')?'bybit':'bingx';
   const interval=url.searchParams.get('interval')??url.searchParams.get('bar');
   const data=name===venue&&(interval==='30m'||interval==='30')?[[start,'100','110','95']]:[];
-  return Response.json(name==='binance'?data:name==='bybit'?{retCode:0,result:{list:data}}:{code:0,data});
+  return Response.json(name==='bybit'?{retCode:0,result:{list:data}}:{code:0,data});
  },32);
  const result=await historicalCandles(trade(`${venue.toUpperCase()}THIRTYUSDT`),{},later.ctx);
  assert.equal(result.provider,venue);assert.equal(result.timeframe,'30m');
  assert.ok(later.calls.length<=32,'the final venue remains within the batch cap');
- if(venue==='bingx')assert.equal(later.calls.length,25,'BingX 30m is reachable after three empty venues');
+ if(venue==='bingx')assert.equal(later.calls.length,18,'BingX 30m is reachable after two empty venues');
 }
 assert.equal(cryptoPair(trade('BTCUSDT.P',{cryptoProductType:null})).product,'perpetual','an explicit perpetual chart suffix is enough to identify the product');
 
@@ -100,21 +103,48 @@ for(const status of [401,403,418,429,451]){
  await assert.rejects(historicalCandles(trade('STATUS'+status+'USDT'),{},refusal.ctx),error=>error instanceof QuoteError&&error.stop&&error.diagnostic.provider==='bybit'&&error.diagnostic.status===status);
  assert.equal(refusal.calls.length,1,'an explicit source also stops on refusal without routing elsewhere');
 }
-const limited = context(() => Response.json([]), 2);
+const limited = context(() => Response.json({code:0,data:[]}), 2);
 let cursor;
 await assert.rejects(() => historicalCandles(trade('CAPUSDT'), {}, limited.ctx), error => { cursor=error.cursor;return error instanceof QuoteBudgetError && !error.stop; });
 assert.equal(limited.calls.length, 2, 'request caps apply before a network call');
-const continued=context(url=>Response.json(url.searchParams.get('interval')==='15m'?[[start,'100','104','98']]:[]));
+const continued=context(url=>Response.json({code:0,data:url.searchParams.get('bar')==='15m'?[[start,'100','104','98']]:[]}));
 assert.equal((await historicalCandles(trade('CAPUSDT'),{},continued.ctx,cursor)).timeframe,'15m');
 assert.equal(continued.calls.length,1,'resume starts at the next unqueried interval instead of repeating completed intervals');
-const nonlisting=context(url=>url.hostname==='fapi.binance.com'?Response.json({code:-1121,msg:'Invalid symbol.'},{status:400}):Response.json({code:'0',data:rows}));
-assert.equal((await historicalCandles(trade('UNLISTEDUSDT'),{},nonlisting.ctx)).provider,'okx');
+assert.deepEqual(cursor.scanned,[{provider:'okx',timeframe:'1m'},{provider:'okx',timeframe:'5m'}]);
+assert.equal(cursor.provider,'okx');assert.equal(cursor.timeframe,'15m');assert.equal(cursor.version,2);
+const persisted=context(()=>{throw new Error('completed scan must not query again');});
+assert.equal(await historicalCandles(trade('CAPUSDT'),{},persisted.ctx,structuredClone(continued.ctx.cryptoCursor)),null);
+assert.equal(persisted.calls.length,0,'successful saved scans are reused by callers, not fetched again after remount');
+const legacyOkx=normalizeCryptoCursor({providerIndex:1,intervalIndex:2});
+assert.equal(legacyOkx.provider,'okx');assert.equal(legacyOkx.timeframe,'15m');assert.equal(legacyOkx.scanned.length,2,'v80 index1 stays OKX after removing Binance');
+const legacyBinance=normalizeCryptoCursor({providerIndex:0,intervalIndex:6});
+assert.equal(legacyBinance.provider,'okx');assert.equal(legacyBinance.timeframe,'1m');assert.equal(legacyBinance.scanned.length,0,'removed Binance cursors do not imply OKX was already queried');
+const legacyBybit=normalizeCryptoCursor({providerIndex:2,intervalIndex:1});
+assert.equal(legacyBybit.provider,'bybit');assert.equal(legacyBybit.scanned.length,8);
+const migrated=context(url=>{assert.equal(url.hostname,'api.bybit.com');assert.equal(url.searchParams.get('interval'),'5');return Response.json({retCode:0,result:{list:[rows[0]]}});});
+assert.equal((await historicalCandles(trade('MIGRATIONUSDT'),{},migrated.ctx,{providerIndex:2,intervalIndex:1})).provider,'bybit');
+assert.equal(migrated.calls.length,1,'old completed venues/intervals are not repeated after source-order migration');
+const emptyChosen=context(()=>Response.json({code:0,data:[]}));emptyChosen.ctx.cryptoSource='okx';
+assert.equal(await historicalCandles(trade('SCANNEDUSDT'),{},emptyChosen.ctx),null);
+assert.equal(emptyChosen.ctx.cryptoCursor.complete,undefined,'a single exhausted source does not make all other sources complete');
+const resumedSource=context(url=>{assert.equal(url.hostname,'api.bybit.com');return Response.json({retCode:0,result:{list:rows}});});
+assert.equal((await historicalCandles(trade('SCANNEDUSDT'),{},resumedSource.ctx,structuredClone(emptyChosen.ctx.cryptoCursor))).provider,'bybit');
+assert.equal(resumedSource.calls.length,1,'persisted exhausted OKX history is skipped when automatic analysis continues');
+const completeEmpty=context(url=>Response.json(url.hostname==='api.bybit.com'?{retCode:0,result:{list:[]}}:{code:0,data:[]}));
+assert.equal(await historicalCandles(trade('ALLSCANNEDUSDT'),{},completeEmpty.ctx),null);assert.equal(completeEmpty.calls.length,21);assert.equal(completeEmpty.ctx.cryptoCursor.complete,true);
+const noRepeats=context(()=>{throw new Error('old absent history must not be repeatedly queried');});
+assert.equal(await historicalCandles(trade('ALLSCANNEDUSDT'),{},noRepeats.ctx,structuredClone(completeEmpty.ctx.cryptoCursor)),null);assert.equal(noRepeats.calls.length,0);
+const nonlisting=context(url=>url.hostname==='openapi.okx.com'?Response.json({code:'51001',msg:'Instrument does not exist.'}):Response.json({retCode:0,result:{list:rows}}));
+const listed=await historicalCandles(trade('UNLISTEDUSDT'),{},nonlisting.ctx);
+assert.equal(listed.provider,'bybit');assert.deepEqual(listed.cryptoScan.unavailable,['okx']);
 assert.equal(nonlisting.calls.length,2,'an explicitly unavailable instrument skips that venue, not seven futile intervals');
-const twoPages=context(url=>{const first=Number(url.searchParams.get('startTime')),last=Number(url.searchParams.get('endTime'));return Response.json(Array.from({length:Math.floor((last-first)/60000)+1},(_,i)=>[first+i*60000,'100','104','98']));},32);
+const twoPages=context(url=>{const first=Number(url.searchParams.get('start')),last=Number(url.searchParams.get('end'));return Response.json({retCode:0,result:{list:Array.from({length:Math.floor((last-first)/60000)+1},(_,i)=>[first+i*60000,'100','104','98'])}});},32);
+twoPages.ctx.cryptoSource='bybit';
 const paged=await historicalCandles(trade('PAGEDUSDT',{exitTime:'2026-09-22T12:00'}),{},twoPages.ctx);
 assert.equal(paged.candles.length,1560);assert.equal(twoPages.calls.length,2,'minute history covering more than one provider page is complete');
 const partialBudget=context(()=>{throw new Error('must reserve the full interval before querying');},1);
-await assert.rejects(()=>historicalCandles(trade('RESERVEPAGEDUSDT',{exitTime:'2026-09-22T12:00'}),{},partialBudget.ctx),e=>e instanceof QuoteBudgetError&&e.cursor.intervalIndex===0);
+partialBudget.ctx.cryptoSource='bybit';
+await assert.rejects(()=>historicalCandles(trade('RESERVEPAGEDUSDT',{exitTime:'2026-09-22T12:00'}),{},partialBudget.ctx),e=>e instanceof QuoteBudgetError&&e.cursor.timeframe==='1m');
 assert.equal(partialBudget.calls.length,0,'a split interval is deferred before fetching partial pages');
 const timeout=context(()=>{throw new Error('transport failure');});
 await assert.rejects(()=>historicalCandles(trade('TIMEOUTUSDT'),{},timeout.ctx),e=>e instanceof QuoteError&&e.retryable);

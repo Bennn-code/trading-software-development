@@ -3,22 +3,26 @@ import { readBoundedText } from './bounded-response';
 import { cryptoProductForTrade, type Trade } from './trades';
 
 export type QuoteKeys = { fugle?: string; twelveData?: string; databento?: string };
-type CryptoVenue = 'binance' | 'okx' | 'bybit' | 'bingx';
+export type CryptoVenue = 'okx' | 'bybit' | 'bingx';
 export type CryptoQuoteSource = CryptoVenue | 'auto';
 type QuoteProvider = CryptoVenue | 'fugle' | 'twelve-data' | 'databento';
 export type PriceCandle = { time: number; high: number; low: number; end?: number };
-type Context = { fetch: typeof fetch; reserve: (provider: QuoteProvider) => Promise<void>; requests: number; maxRequests: number; cryptoSource?: CryptoQuoteSource };
-export type CandleResult = { provider: string; timeframe: string; candles: PriceCandle[]; referenceSymbol: string; productType: string };
+type Context = { fetch: typeof fetch; reserve: (provider: QuoteProvider) => Promise<void>; requests: number; maxRequests: number; cryptoSource?: CryptoQuoteSource; cryptoCursor?: CryptoCursor };
+export type CandleResult = { provider: string; timeframe: string; intervalMinutes: number; candles: PriceCandle[]; referenceSymbol: string; productType: string; cryptoScan?: CryptoCursor };
 export class QuoteError extends Error {
+  cursor?: CryptoCursor;
   constructor(message: string, public stop = false, public retryable = false, public diagnostic?: { provider: string; status: number }) { super(message); }
 }
-export type CryptoCursor = { providerIndex: number; intervalIndex: number };
+export type CryptoTimeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
+export type CryptoScanStep = { provider: CryptoVenue; timeframe: CryptoTimeframe };
+export type CryptoCursor = CryptoScanStep & { version: 2; scanned: CryptoScanStep[]; unavailable: CryptoVenue[]; complete?: boolean };
+export type LegacyCryptoCursor = { providerIndex: number; intervalIndex: number };
 export class QuoteBudgetError extends QuoteError {
-  constructor(public cursor?: CryptoCursor) { super('本次行情查詢額度已用完，交易仍在佇列中，將接續查詢。'); }
+  constructor(cursor?: CryptoCursor) { super('本次行情查詢額度已用完，交易仍在佇列中，將接續查詢。'); this.cursor = cursor; }
 }
 class InstrumentUnavailable extends QuoteError {}
 const intervals = [1, 5, 15, 30, 60, 240, 1440];
-const cryptoOrder: CryptoVenue[] = ['binance', 'okx', 'bybit', 'bingx'];
+const cryptoOrder: CryptoVenue[] = ['okx', 'bybit', 'bingx'];
 const minute = 60_000;
 const publicCache = new Map<string, { until: number; result: CandleResult }>();
 
@@ -84,8 +88,7 @@ function stockSession(time: number, zone: string, market: Trade['market']) {
 }
 
 async function requestResponse(ctx: Context, provider: QuoteProvider, url: URL, headers: Record<string, string> = {}, body?: URLSearchParams) {
-  const allowed = provider === 'binance' ? (url.hostname === 'fapi.binance.com' && url.pathname === '/fapi/v1/klines') || (url.hostname === 'api.binance.com' && url.pathname === '/api/v3/klines')
-    : provider === 'okx' ? url.hostname === 'openapi.okx.com' && url.pathname === '/api/v5/market/history-candles'
+  const allowed = provider === 'okx' ? url.hostname === 'openapi.okx.com' && url.pathname === '/api/v5/market/history-candles'
     : provider === 'bybit' ? url.hostname === 'api.bybit.com' && url.pathname === '/v5/market/kline'
     : provider === 'bingx' ? url.hostname === 'open-api.bingx.com' && ['/openApi/spot/v2/market/kline', '/openApi/swap/v3/quote/klines'].includes(url.pathname)
     : provider === 'fugle' ? url.hostname === 'api.fugle.tw' && /^\/marketdata\/v1\.0\/(stock|futopt)\/historical\/candles\/[A-Z0-9]+$/.test(url.pathname)
@@ -121,11 +124,6 @@ async function requestResponse(ctx: Context, provider: QuoteProvider, url: URL, 
       : '行情來源暫時限流，已停止查詢；請稍後再試。';
     throw new QuoteError(reason, true, false, diagnostic);
   }
-  if (response.status === 400 && provider === 'binance') {
-    const data = parseJson(await readBoundedText(response, 16_000));
-    if (data && !Array.isArray(data) && String(data.code) === '-1121') throw new InstrumentUnavailable('此來源沒有相同商品。');
-    return null;
-  }
   if ([400, 404, 422].includes(response.status)) return null;
   if (!response.ok) throw new QuoteError('行情供應商暫時無法提供資料。', false, true);
   return response;
@@ -143,10 +141,7 @@ function parseJson(text: string | null): Record<string, unknown> | unknown[] | n
 async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, product: 'spot' | 'perpetual', start: number, end: number, minutes: number, limit: number) {
   const code = label(minutes), params = new URLSearchParams();
   let host: string, path: string;
-  if (provider === 'binance') {
-    host = product === 'spot' ? 'api.binance.com' : 'fapi.binance.com'; path = product === 'spot' ? '/api/v3/klines' : '/fapi/v1/klines';
-    params.set('symbol', `${base}USDT`); params.set('interval', code); params.set('startTime', String(start)); params.set('endTime', String(end - 1)); params.set('limit', String(limit));
-  } else if (provider === 'okx') {
+  if (provider === 'okx') {
     host = 'openapi.okx.com'; path = '/api/v5/market/history-candles';
     params.set('instId', `${base}-USDT${product === 'perpetual' ? '-SWAP' : ''}`); params.set('bar', minutes === 1440 ? '1Dutc' : minutes >= 60 ? code.toUpperCase() : code); params.set('after', String(end)); params.set('limit', String(limit));
   } else if (provider === 'bybit') {
@@ -159,11 +154,7 @@ async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, pro
   const payload = parseJson(await request(ctx, provider, new URL(`https://${host}${path}?${params}`)));
   if (!payload) return [];
   let rows: unknown[] = [];
-  if (provider === 'binance') {
-    if (!Array.isArray(payload) && String(payload.code) === '-1121') throw new InstrumentUnavailable('此來源沒有相同商品。');
-    rows = Array.isArray(payload) ? payload : [];
-  }
-  else {
+  {
     const record = payload as Record<string, unknown>, status = String(provider === 'bybit' ? record.retCode : record.code);
     if (['10006', '10009', '10010', '10003', '10004', '50011', '50040'].includes(status)) throw new QuoteError('行情供應商限制查詢；已停止本次請求。', true);
     if (provider === 'okx' && status === '51001' || provider === 'bybit' && status === '10029') throw new InstrumentUnavailable('此來源沒有相同商品。');
@@ -171,33 +162,72 @@ async function cryptoPage(ctx: Context, provider: CryptoVenue, base: string, pro
     rows = provider === 'bybit' ? ((record.result as { list?: unknown[] })?.list ?? []) : Array.isArray(record.data) ? record.data : [];
   }
   return rows.flatMap(row => {
-    if (Array.isArray(row)) return validCandle(Number(row[0]), row[2], row[3]);
+    if (Array.isArray(row)) return validCandle(Number(row[0]), row[2], row[3], Number(row[0]) + minutes * minute);
     if (!row || typeof row !== 'object') return [];
     const c = row as Record<string, unknown>, time = Number(c.time ?? c.timestamp);
-    return validCandle(time < 1e12 ? time * 1000 : time, c.high, c.low);
+    const stamp = time < 1e12 ? time * 1000 : time;
+    return validCandle(stamp, c.high, c.low, stamp + minutes * minute);
   }).filter(c => c.time >= start && c.time < end);
 }
 
-async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: number, cursor?: CryptoCursor): Promise<CandleResult | null> {
+export function normalizeCryptoCursor(cursor?: CryptoCursor | LegacyCryptoCursor, source: CryptoQuoteSource = 'auto'): CryptoCursor {
+  if (cursor && 'version' in cursor && cursor.version === 2) {
+    return { ...cursor, scanned: cursor.scanned.map(step => ({ ...step })), unavailable: [...cursor.unavailable] };
+  }
+  // Legacy v80 indices were Binance, OKX, Bybit, BingX. A deleted supplier's
+  // numeric index must never accidentally become a different surviving supplier.
+  const oldOrder = source === 'auto' ? ['binance', ...cryptoOrder] : [source];
+  const legacy = cursor && 'providerIndex' in cursor ? cursor : undefined;
+  const oldProvider = oldOrder[legacy?.providerIndex ?? 0];
+  const provider = cryptoOrder.includes(oldProvider as CryptoVenue) ? oldProvider as CryptoVenue : source === 'auto' ? 'okx' : source;
+  const intervalIndex = oldProvider === 'binance' ? 0 : Math.max(0, Math.min(intervals.length - 1, legacy?.intervalIndex ?? 0));
+  const scanned: CryptoScanStep[] = [];
+  if (legacy) {
+    for (const earlier of oldOrder.slice(0, legacy.providerIndex)) {
+      if (cryptoOrder.includes(earlier as CryptoVenue)) for (const minutes of intervals) scanned.push({ provider: earlier as CryptoVenue, timeframe: label(minutes) as CryptoTimeframe });
+    }
+    for (const minutes of intervals.slice(0, intervalIndex)) scanned.push({ provider, timeframe: label(minutes) as CryptoTimeframe });
+  }
+  return { version: 2, provider, timeframe: label(intervals[intervalIndex]) as CryptoTimeframe, scanned, unavailable: [] };
+}
+
+async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: number, cursor?: CryptoCursor | LegacyCryptoCursor): Promise<CandleResult | null> {
   const pair = cryptoPair(trade);
   if (!pair) throw new QuoteError('請確認加密商品是 USDT 現貨或永續合約，並填寫商品類型；不會用不同產品的價格代替。');
   // A user can start a new query at a selected supplier. Never switch away from a
   // supplier that rejected the current query; automatic order still stops on bans.
   const order = ctx.cryptoSource && ctx.cryptoSource !== 'auto' ? [ctx.cryptoSource] : cryptoOrder;
-  for (let providerIndex = cursor?.providerIndex ?? 0; providerIndex < order.length; providerIndex++) {
+  const scan = normalizeCryptoCursor(cursor, ctx.cryptoSource);
+  const progress = (provider: CryptoVenue, timeframe: CryptoTimeframe, complete = false) => {
+    scan.provider = provider; scan.timeframe = timeframe;
+    const snapshot: CryptoCursor = { version: 2, provider, timeframe, scanned: scan.scanned.map(step => ({ ...step })), unavailable: [...scan.unavailable], ...(complete ? { complete: true } : {}) };
+    ctx.cryptoCursor = snapshot;
+    return snapshot;
+  };
+  if (scan.complete) { progress(scan.provider, scan.timeframe, true); return null; }
+  // Named progress can be reused even after selecting another surviving supplier.
+  // Explicitly completed source/intervals and unavailable instruments never repeat.
+  for (let providerIndex = 0; providerIndex < order.length; providerIndex++) {
     const provider = order[providerIndex];
-    const limit = provider === 'okx' ? 300 : provider === 'binance' && pair.product === 'perpetual' ? 1500 : provider === 'bingx' ? 1440 : 1000;
-    for (let intervalIndex = providerIndex === cursor?.providerIndex ? cursor.intervalIndex : 0; intervalIndex < intervals.length; intervalIndex++) {
+    if (scan.unavailable.includes(provider)) continue;
+    const limit = provider === 'okx' ? 300 : provider === 'bingx' ? 1440 : 1000;
+    for (let intervalIndex = 0; intervalIndex < intervals.length; intervalIndex++) {
       const minutes = intervals[intervalIndex];
+      const timeframe = label(minutes) as CryptoTimeframe;
+      if (scan.scanned.some(step => step.provider === provider && step.timeframe === timeframe)) continue;
+      progress(provider, timeframe);
       const step = minutes * minute, first = Math.floor(start / step) * step, last = Math.floor((end - 1) / step) * step;
       const count = Math.floor((last - first) / step) + 1;
-      if (count > limit * 3) continue;
+      if (count > limit * 3) { scan.scanned.push({ provider, timeframe }); progress(provider, timeframe); continue; }
       const cacheKey = `${provider}|${pair.product}|${pair.base}|${minutes}|${first}|${last}`;
       const cached = publicCache.get(cacheKey);
-      if (cached && cached.until > Date.now()) return cached.result;
+      if (cached && cached.until > Date.now()) {
+        scan.scanned.push({ provider, timeframe });
+        return { ...cached.result, cryptoScan: progress(provider, timeframe, true) };
+      }
       // Reserve room for this bounded interval so a continuation never discards
       // partially fetched pages. Each fresh request still has the same 32-call cap.
-      if (ctx.maxRequests - ctx.requests < Math.ceil(count / limit)) throw new QuoteBudgetError({ providerIndex, intervalIndex });
+      if (ctx.maxRequests - ctx.requests < Math.ceil(count / limit)) throw new QuoteBudgetError(progress(provider, timeframe));
       let all: PriceCandle[] = [];
       try {
         for (let page = first; page <= last; page += limit * step) {
@@ -206,21 +236,24 @@ async function cryptoCandles(ctx: Context, trade: Trade, start: number, end: num
           all.push(...values);
         }
       } catch (error) {
-        if (error instanceof QuoteBudgetError) throw new QuoteBudgetError({ providerIndex, intervalIndex });
-        if (error instanceof InstrumentUnavailable) break;
-        if (error instanceof QuoteError && error.stop) throw error;
-        if (error instanceof QuoteError) throw error; // Do not disguise transport failures as missing history.
+        if (error instanceof QuoteBudgetError) throw new QuoteBudgetError(progress(provider, timeframe));
+        if (error instanceof InstrumentUnavailable) { scan.unavailable.push(provider); progress(provider, timeframe); break; }
+        if (error instanceof QuoteError) { error.cursor = progress(provider, timeframe); throw error; } // Do not disguise failures as missing history or route around refusals.
         throw error;
       }
       all = unique(all);
+      scan.scanned.push({ provider, timeframe });
+      progress(provider, timeframe);
       // Reject partial old history and missing buckets instead of silently understating excursions.
       if (all.length !== count || all[0].time !== first || all.at(-1)?.time !== last) continue;
-      const result = { provider, timeframe: label(minutes), candles: all, referenceSymbol: `${pair.base}/USDT`, productType: pair.product };
+      const result: CandleResult = { provider, timeframe, intervalMinutes: minutes, candles: all, referenceSymbol: `${pair.base}/USDT`, productType: pair.product, cryptoScan: progress(provider, timeframe, true) };
       publicCache.set(cacheKey, { until: Date.now() + 3600000, result });
       if (publicCache.size > 250) publicCache.delete(publicCache.keys().next().value!);
       return result;
     }
   }
+  const exhausted = cryptoOrder.every(provider => scan.unavailable.includes(provider) || intervals.every(minutes => scan.scanned.some(step => step.provider === provider && step.timeframe === label(minutes))));
+  progress(order.at(-1)!, '1d', exhausted);
   return null;
 }
 
@@ -250,13 +283,13 @@ async function fugleCandles(ctx: Context, trade: Trade, key: string, start: numb
         if (futures && row.contractMonth !== contract!.month) continue;
         const date = String(row.date), daily = minutes === 1440;
         const time = daily ? Date.parse(`${date}T${futures ? '08:45' : '00:00'}:00+08:00`) : Date.parse(date);
-        candles.push(...validCandle(time, row.high, row.low, daily && futures ? Date.parse(`${date}T13:45:00+08:00`) : undefined));
+        candles.push(...validCandle(time, row.high, row.low, daily && futures ? Date.parse(`${date}T13:45:00+08:00`) : time + minutes * minute));
       }
     }
     const included = unique(candles).filter(c => overlaps(c, start, end, minutes));
     if (coversHolding(included, start, end, minutes, trade.market)) {
       if (futures && minutes === 1440 && (localDate(start, 'Asia/Taipei') !== localDate(end - 1, 'Asia/Taipei') || start < included[0].time || end > included.at(-1)!.end!)) continue;
-      return { provider: 'Fugle', timeframe: label(minutes), candles: included, referenceSymbol: symbol, productType: futures ? 'future' : 'stock' };
+      return { provider: 'Fugle', timeframe: label(minutes), intervalMinutes: minutes, candles: included, referenceSymbol: symbol, productType: futures ? 'future' : 'stock' };
     }
   }
   return null;
@@ -287,9 +320,9 @@ async function twelveCandles(ctx: Context, trade: Trade, key: string, start: num
       // Daily timestamps use exchange time even when timezone=UTC was requested.
       const time = minutes === 1440 ? utcTradeTime(`${date.slice(0, 10)}T00:00`, meta.exchange_timezone || '') : Date.parse(`${date.replace(' ', 'T')}Z`);
       const dailyEnd = minutes === 1440 ? utcTradeTime(`${dateShift(date.slice(0, 10), 1)}T00:00`, meta.exchange_timezone || '') : undefined;
-      return validCandle(time, row.high, row.low, dailyEnd);
+      return validCandle(time, row.high, row.low, dailyEnd ?? time + minutes * minute);
     }).filter(c => overlaps(c, start, end, minutes));
-    if (coversHolding(candles, start, end, minutes, trade.market)) return { provider: 'Twelve Data', timeframe: label(minutes), candles: unique(candles), referenceSymbol: symbol, productType: 'stock' };
+    if (coversHolding(candles, start, end, minutes, trade.market)) return { provider: 'Twelve Data', timeframe: label(minutes), intervalMinutes: minutes, candles: unique(candles), referenceSymbol: symbol, productType: 'stock' };
   }
   return null;
 }
@@ -311,16 +344,17 @@ async function databentoCandles(ctx: Context, trade: Trade, key: string, start: 
         const row = JSON.parse(line) as { symbol?: string; hd?: { ts_event?: string }; ts_event?: string; high?: unknown; low?: unknown };
         if (row.symbol !== symbol) throw new QuoteError('行情回傳的期貨合約與交易不相符，已停止分析。', true);
         const stamp = row.hd?.ts_event ?? row.ts_event;
-        candles.push(...validCandle(Date.parse(String(stamp)), row.high, row.low));
+        const time = Date.parse(String(stamp));
+        candles.push(...validCandle(time, row.high, row.low, time + step));
       }
     } catch (error) { if (error instanceof QuoteError) throw error; throw new QuoteError('行情回應格式無法辨識。'); }
     const included = unique(candles).filter(c => overlaps(c, start, end, minutes));
-    if (coversHolding(included, start, end, minutes, trade.market)) return { provider: 'Databento · GLBX.MDP3', timeframe: label(minutes), candles: included, referenceSymbol: symbol, productType: 'future' };
+    if (coversHolding(included, start, end, minutes, trade.market)) return { provider: 'Databento · GLBX.MDP3', timeframe: label(minutes), intervalMinutes: minutes, candles: included, referenceSymbol: symbol, productType: 'future' };
   }
   return null;
 }
 
-export async function historicalCandles(trade: Trade, keys: QuoteKeys, context: Context, cursor?: CryptoCursor): Promise<CandleResult | null> {
+export async function historicalCandles(trade: Trade, keys: QuoteKeys, context: Context, cursor?: CryptoCursor | LegacyCryptoCursor): Promise<CandleResult | null> {
   const start = utcTradeTime(trade.entryTime, trade.timezone), end = utcTradeTime(trade.exitTime, trade.timezone);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new QuoteError('進出場時間無效或相同；請先確認交易時間。');
   if (end > Date.now()) throw new QuoteError('出場時間在未來，歷史行情尚未產生；請確認交易日期與時區。');

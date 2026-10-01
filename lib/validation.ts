@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { isFuturesMarket } from './trades';
+import { cryptoExcursionPosition, isFuturesMarket } from './trades';
 const fieldNames:Record<string,string>={id:'交易識別碼',market:'市場',symbol:'商品代號',side:'交易方向',account:'帳戶名稱',currency:'計價幣別',entryTime:'進場時間',exitTime:'出場時間',entry:'平均進場價',exit:'平均出場價',quantity:'交易數量／口數',multiplier:'每點乘數',commission:'佣金／券商手續費',transactionTax:'交易稅／印花稅',fees:'其他交易費 Fee',exchangeFee:'交易所手續費',clearingFee:'結算手續費',settlementFee:'交割手續費',regulatoryFee:'監管費',secFee:'SEC 交易費',finraFee:'FINRA 活動費',futuresTax:'期貨交易稅',feeMode:'手續費方向',funding:'資金費',strategy:'交易策略',notes:'交易心得',imageId:'交易截圖',netOverride:'盈虧',positionValue:'進場倉位金額',leverage:'槓桿倍數',marginMode:'保證金模式',profitBasis:'盈虧口徑',exchangeSource:'價格資料來源交易所',riskAmount:'初始風險金額',mae:'最大浮虧 MAE',mfe:'最大浮盈 MFE'};
+fieldNames.marginAmount='進場初始保證金';fieldNames.positionSizing='部位估算依據';
 export function tradeIssueMessage(issue:z.ZodIssue) {
  const field=[...issue.path].reverse().find(p=>typeof p==='string'&&fieldNames[p]);
  const name=typeof field==='string'?fieldNames[field]:'交易資料';
@@ -20,6 +21,10 @@ export function tradeIssueMessage(issue:z.ZodIssue) {
  return `${name}：${issue.message}`;
 }
 const amount=z.number().finite().min(0).max(1e12);
+const excursionTime=z.object({start:z.number().finite(),end:z.number().finite(),elapsedStartMinutes:z.number().finite().min(-1440),elapsedEndMinutes:z.number().finite().min(0)}).strict().refine(value=>value.end>=value.start&&value.elapsedEndMinutes>=value.elapsedStartMinutes,'極值時間區間不正確');
+const scanProvider=z.enum(['okx','bybit','bingx']);
+const scanTimeframe=z.enum(['1m','5m','15m','30m','1h','4h','1d']);
+const excursionScan=z.object({version:z.literal(2),input:z.string().max(1200),status:z.enum(['complete','missing','pending','blocked']),source:z.enum(['auto','okx','bybit','bingx']),resume:z.object({version:z.literal(2),provider:scanProvider,timeframe:scanTimeframe,scanned:z.array(z.object({provider:scanProvider,timeframe:scanTimeframe}).strict()).max(21),unavailable:z.array(scanProvider).max(3),complete:z.boolean().optional()}).strict().optional(),reason:z.string().max(500).optional(),diagnostic:z.object({provider:z.string().max(60),status:z.number().int().min(100).max(599)}).strict().optional(),updatedAt:z.string().datetime()}).strict().nullable().optional();
 const time=z.string().refine(s=>{if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s))return false;const d=new Date(s+'Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,16)===s;},'請填寫完整且有效的日期與時間');
 export const tradeSchema=z.object({
  id:z.string().uuid(),market:z.enum(['futures','tw-index-futures','crypto','us-stocks','tw-stocks','cn-stocks','hk-stocks']),symbol:z.string().trim().min(1).max(30),side:z.enum(['long','short']),
@@ -28,18 +33,21 @@ export const tradeSchema=z.object({
  commission:z.number().finite().min(-1e12).max(1e12).nullable().optional(),transactionTax:z.number().finite().min(-1e12).max(1e12).nullable().optional(),fees:z.number().finite().min(-1e12).max(1e12).nullable().optional(),exchangeFee:z.number().finite().min(-1e12).max(1e12).nullable().optional(),clearingFee:z.number().finite().min(-1e12).max(1e12).nullable().optional(),settlementFee:z.number().finite().min(-1e12).max(1e12).nullable().optional(),regulatoryFee:z.number().finite().min(-1e12).max(1e12).nullable().optional(),secFee:z.number().finite().min(-1e12).max(1e12).nullable().optional(),finraFee:z.number().finite().min(-1e12).max(1e12).nullable().optional(),futuresTax:z.number().finite().min(-1e12).max(1e12).nullable().optional(),feeMode:z.enum(['paid','rebate']).optional(),funding:z.number().finite().min(-1e12).max(1e12).nullable().optional(),strategy:z.preprocess(v=>v??'',z.string().trim().max(80)),notes:z.string().max(10000),
  imageId:z.string().uuid().nullable(),netOverride:z.number().finite().min(-1e15).max(1e15).nullable(),
  positionValue:amount.positive().nullable().optional(),leverage:z.number().finite().min(1).max(1000).nullable().optional(),
+ marginAmount:amount.positive().nullable().optional(),positionSizing:z.enum(['notional','base-quantity','margin']).nullable().optional(),
   riskAmount:z.number().finite().positive().max(1e12).nullable().optional(),mae:z.number().finite().min(-1e15).max(1e15).nullable().optional(),mfe:z.number().finite().min(-1e15).max(1e15).nullable().optional(),exchangeSource:z.enum(['bybit','bitget','okx','kucoin','bingx','mexc','binance']).nullable().optional(),cryptoProductType:z.enum(['spot','perpetual']).nullable().optional(),priceSymbol:z.string().trim().max(30).regex(/^[A-Za-z0-9._/ -]*$/).nullable().optional(),
  marginMode:z.enum(['cross','isolated']).nullable().optional(),profitBasis:z.enum(['net','gross']).optional(),
- excursionEstimate:z.object({input:z.string().max(600),provider:z.string().max(60),timeframe:z.enum(['1m','5m','15m','30m','1h','4h','1d']),referenceSymbol:z.string().max(30),productType:z.enum(['spot','perpetual','stock','future']),candleCount:z.number().int().min(1).max(100000),mae:z.number().finite().min(-1e15).max(0).nullable(),mfe:z.number().finite().min(0).max(1e15).nullable()}).strict().nullable().optional(),
-}).superRefine((t,ctx)=>{if(t.netOverride===null){for(const field of ['entry','exit','quantity',...(isFuturesMarket(t.market)?['multiplier']:[])] as const){if((t[field as 'entry']??0)<=0)ctx.addIssue({code:z.ZodIssueCode.custom,path:[field],message:'自動計算需要此欄位，或直接填寫帳單盈虧。'});}}}).refine(t=>t.exitTime>=t.entryTime,{message:'出場時間不可早於進場時間',path:['exitTime']})
+ excursionEstimate:z.object({input:z.string().max(1200),provider:z.string().max(60),timeframe:scanTimeframe,referenceSymbol:z.string().max(30),productType:z.enum(['spot','perpetual','stock','future']),candleCount:z.number().int().min(1).max(100000),mae:z.number().finite().min(-1e15).max(0).nullable(),mfe:z.number().finite().min(0).max(1e15).nullable(),calculationVersion:z.number().int().min(1).max(2).optional(),sizeBasis:z.enum(['notional','base-quantity','margin','contracts','shares']).optional(),maeTime:excursionTime.nullable().optional(),mfeTime:excursionTime.nullable().optional()}).strict().nullable().optional(),excursionScan,
+}).superRefine((t,ctx)=>{if(t.netOverride===null){for(const field of ['entry','exit','quantity',...(isFuturesMarket(t.market)?['multiplier']:[])] as const){if(field==='quantity'&&t.market==='crypto'&&cryptoExcursionPosition(t))continue;if((t[field as 'entry']??0)<=0)ctx.addIssue({code:z.ZodIssueCode.custom,path:[field],message:'自動計算需要此欄位，或直接填寫帳單盈虧。'});}}}).refine(t=>t.exitTime>=t.entryTime,{message:'出場時間不可早於進場時間',path:['exitTime']})
 .refine(t=>!isFuturesMarket(t.market)||Number.isInteger(t.quantity),{message:'期貨口數必須為整數',path:['quantity']})
 .transform(t=>{
  const futuresFees=['futures','tw-index-futures','cn-stocks','hk-stocks','crypto'];
  const clearingFees=['futures','tw-index-futures','cn-stocks','hk-stocks'];
  const regulatoryFees=['futures','us-stocks','cn-stocks','hk-stocks'];
  const absolute=(value:number|null|undefined)=>value==null?null:Math.abs(value);
+ const cryptoSize=cryptoExcursionPosition(t);
  return {...t,commission:absolute(t.commission),feeMode:t.feeMode??'paid',funding:t.market==='crypto'?t.funding??null:null,mae:t.mae==null?null:-Math.abs(t.mae),mfe:t.mfe==null?null:Math.abs(t.mfe),fees:t.fees==null?null:(t.feeMode==='rebate'?-1:1)*Math.abs(t.fees),
   exchangeFee:futuresFees.includes(t.market)?absolute(t.exchangeFee):null,clearingFee:clearingFees.includes(t.market)?absolute(t.clearingFee):null,settlementFee:t.market==='tw-index-futures'?absolute(t.settlementFee):null,regulatoryFee:regulatoryFees.includes(t.market)?absolute(t.regulatoryFee):null,secFee:t.market==='us-stocks'?absolute(t.secFee):null,finraFee:t.market==='us-stocks'?absolute(t.finraFee):null,futuresTax:t.market==='tw-index-futures'?absolute(t.futuresTax):null,
-  ...(t.market==='crypto'?{multiplier:1,quantity:t.positionValue!=null&&t.entry>0?t.positionValue/t.entry:t.quantity}:!isFuturesMarket(t.market)?{multiplier:1,positionValue:null,leverage:null,marginMode:null,funding:null}:{}),
+  // Keep legacy accounting normalization, without claiming an unconfirmed size unit is suitable for a new excursion estimate.
+  ...(t.market==='crypto'?{multiplier:1,quantity:cryptoSize?.quantity??(t.positionValue!=null&&t.entry>0?t.positionValue/t.entry:t.quantity),...(t.positionSizing&&cryptoSize?{positionValue:cryptoSize.notional}:{})}:!isFuturesMarket(t.market)?{multiplier:1,positionValue:null,leverage:null,marginMode:null,marginAmount:null,positionSizing:null,funding:null}:{}),
   transactionTax:['tw-stocks','cn-stocks','hk-stocks'].includes(t.market)?absolute(t.transactionTax):null};
 });

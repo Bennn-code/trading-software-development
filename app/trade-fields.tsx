@@ -6,7 +6,7 @@ import DateTime24 from './date-time24';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { feeCost, grossPnl, initialMargin, isFuturesMarket, marketCurrencies, multiplierForSymbol, parseSignedAmount, pnl, positionValue, type Trade } from '@/lib/trades';
+import { cryptoExcursionPosition, feeCost, grossPnl, initialMargin, isFuturesMarket, marketCurrencies, multiplierForSymbol, parseSignedAmount, pnl, positionValue, type Trade } from '@/lib/trades';
 import { timezoneName, utcOffsetLabel } from '@/lib/preferences';
 
 export function Choice({label,value,options,onChange}:{label:string;value:string;options:[string,string][];onChange:(s:string)=>void}) {
@@ -23,7 +23,7 @@ export function CalculationSummary({trade:t}:{trade:Trade}) {
  const taxLabel=t.market==='cn-stocks'?tx('印花稅'):t.market==='hk-stocks'?tx('股票印花稅'):tx('證券交易稅');
  const itemized:[CostField,string][]=[['exchangeFee','交易所手續費'],['clearingFee','結算手續費'],['settlementFee','交割手續費'],['regulatoryFee','監管費／徵費'],['secFee','SEC 交易費'],['finraFee','FINRA 活動費'],['futuresTax','期貨交易稅']];
  return <div className="calculation-summary" aria-live="polite">
-  {t.market==='crypto'&&<><div><span>{tx('進場倉位金額')}</span><strong>{positionValue(t)>0?`${fmt(positionValue(t))} ${t.currency}`:tx('未知')}</strong></div><div><span>{tx('估算初始保證金')}</span><strong>{margin===null?tx('填寫槓桿後計算'):`${fmt(margin)} ${t.currency}`}</strong></div></>}
+  {t.market==='crypto'&&<><div><span>{tx('進場倉位金額')}</span><strong>{positionValue(t)>0?`${fmt(positionValue(t))} ${t.currency}`:tx('未知')}</strong></div><div><span>{tx(t.marginAmount!=null?'該筆進場保證金':'估算初始保證金')}</span><strong>{margin===null?tx('填寫槓桿後計算'):`${fmt(margin)} ${t.currency}`}</strong></div></>}
   {!(t.netOverride!==null&&t.profitBasis!=='gross')&&<>
    <div><span>{tx('交易盈虧（未扣費）')}</span><strong className={(t.netOverride??grossPnl(t))>=0?'positive':'negative'}>{(t.netOverride??grossPnl(t))>0?'+':''}{fmt(t.netOverride??grossPnl(t))} {t.currency}</strong></div>
    <div><span>{tx(stockMarkets.includes(t.market)?'券商手續費':'佣金 Commission')}</span><strong>{t.commission==null?tx('未知／未計入'):`−${fmt(Math.abs(t.commission))}`}</strong></div>
@@ -34,20 +34,20 @@ export function CalculationSummary({trade:t}:{trade:Trade}) {
   </>}
   <div><span>{tx(t.netOverride!==null?'依填寫盈虧計算':'自動計算淨盈虧')}</span><strong className={profit>=0?'positive':'negative'}>{profit>0?'+':''}{fmt(profit)} {t.currency}</strong></div>
   {returnRate!==null&&<div><span>{tx('估算保證金報酬率')}</span><strong className={profit>=0?'positive':'negative'}>{returnRate>0?'+':''}{fmt(returnRate)}%</strong></div>}
-  {t.market==='crypto'&&<p>{tx('以進場倉位金額 ÷ 槓桿估算，不含交易所額外費用或追加保證金。')}{t.marginMode==='cross'?tx('全倉共用帳戶資金，此數值不代表最大損失或實際占用資金。'):''}</p>}
+  {t.market==='crypto'&&<p>{tx(t.marginAmount!=null?'以填寫的該筆進場保證金計算報酬率；不含交易所額外費用或追加保證金。':'以進場倉位金額 ÷ 槓桿估算，不含交易所額外費用或追加保證金。')}{t.marginMode==='cross'?tx('全倉共用帳戶資金，此數值不代表最大損失或實際占用資金。'):''}</p>}
  </div>;
 }
 
 export default function TradeFields({trade:t,onChange:commit,notes=true}:{trade:Trade;onChange:(t:Trade)=>void;notes?:boolean}) {
  const {t:tx}=useI18n();
  const uid=useId(),[profitText,setProfitText]=useState(t.netOverride===null?'':String(t.netOverride)),[fundingDirection,setFundingDirection]=useState((t.funding??0)<0?'received':'paid');
- const onChange=(next:Trade)=>commit(editExcursions(t,next));
+ const onChange=(next:Trade)=>{const size=cryptoExcursionPosition(next);commit(editExcursions(t,size&&next.positionSizing?{...next,quantity:size.quantity,positionValue:size.notional}:next));};
  const set=<K extends keyof Trade>(key:K,value:Trade[K])=>onChange({...t,[key]:value});
  const tradeTimezone=t.timezone??'Asia/Taipei',timezoneLabel=`${tx(timezoneName(tradeTimezone))} · ${utcOffsetLabel(tradeTimezone,new Date(`${t.entryTime.slice(0,10)}T12:00:00Z`))}`;
  function numeric(key:NumberField,value:number|null) {
   const isCost=!['entry','exit','quantity','multiplier'].includes(key);
   const next={...t,[key]:isCost?(value===null?null:Math.abs(value)):value??0};
-  if(t.market==='crypto'){const known=positionValue(t);next.positionValue=known>0?known:null;next.quantity=known>0&&next.entry>0?known/next.entry:0;}
+  if(t.market==='crypto'&&t.positionSizing!=='base-quantity'&&t.positionSizing!=='margin'){const known=positionValue(t);next.positionValue=known>0?known:null;next.quantity=known>0&&next.entry>0?known/next.entry:0;}
   onChange(next);
  }
  const numberField=(key:NumberField,label:string)=>{
@@ -68,7 +68,7 @@ export default function TradeFields({trade:t,onChange:commit,notes=true}:{trade:
  const guidance=t.market==='tw-index-futures'?'台指期依契約可能有經手費、結算費、交割費與期貨交易稅；期貨商佣金依券商約定。請依成交明細填入實際金額。':t.market==='futures'?'美股期貨費用包含期貨商佣金、交易所費、清算費及可能的監管費；依商品、清算商和券商帳單填入。':t.market==='us-stocks'?'美股現貨可能包含券商佣金、SEC 交易費、FINRA 活動費及其他監管費；部分費用依賣出金額與生效日期改變。':t.market==='tw-stocks'?'台股券商佣金由券商訂定，證券交易稅依商品及買賣方向不同；請按對帳單分開填入。':t.market==='cn-stocks'?'A 股費用可能包含券商佣金、賣方印花稅、交易經手費、證管費及過戶費；請依股票／ETF 類型及交割單填入。':t.market==='hk-stocks'?'港股費用可能包含雙邊股票印花稅、港交所交易費、SFC／AFRC 徵費、結算費及券商佣金；CCASS 費用是否轉嫁依券商而異。':t.market==='crypto'?'加密貨幣交易費依平台、商品與 maker／taker 等級不同；永續合約資金費另行填寫，未知項目留白。':'Commission 與 Fee 分開填；若帳單只有合計，填入其他交易費。';
 
  return <><div className="form-grid">
-  <Choice label={tx('市場')} value={t.market} options={[["futures",tx('美股期貨')],["tw-index-futures",tx('台指期')],["crypto",tx('加密貨幣')],["us-stocks",tx('美股現貨')],["tw-stocks",tx('台股')],["cn-stocks",tx('A股')],["hk-stocks",tx('港股')]]} onChange={v=>{const next=v as Trade['market'],symbol=next==='tw-index-futures'?'TXF':next==='futures'?'MNQ':next==='crypto'?'BTCUSDT':t.symbol;onChange({...t,market:next,symbol,multiplier:isFuturesMarket(next)?multiplierForSymbol(symbol,next==='tw-index-futures'?200:2):1,currency:marketCurrencies[next],quantity:next==='crypto'?0:1,positionValue:null,leverage:null,marginMode:null,funding:null,fees:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null,mae:null,mfe:null,exchangeSource:null,cryptoProductType:null,priceSymbol:null});}}/>
+  <Choice label={tx('市場')} value={t.market} options={[["futures",tx('美股期貨')],["tw-index-futures",tx('台指期')],["crypto",tx('加密貨幣')],["us-stocks",tx('美股現貨')],["tw-stocks",tx('台股')],["cn-stocks",tx('A股')],["hk-stocks",tx('港股')]]} onChange={v=>{const next=v as Trade['market'],symbol=next==='tw-index-futures'?'TXF':next==='futures'?'MNQ':next==='crypto'?'BTCUSDT':t.symbol;onChange({...t,market:next,symbol,multiplier:isFuturesMarket(next)?multiplierForSymbol(symbol,next==='tw-index-futures'?200:2):1,currency:marketCurrencies[next],quantity:next==='crypto'?0:1,positionValue:null,leverage:null,marginMode:null,marginAmount:null,positionSizing:null,funding:null,fees:null,commission:null,transactionTax:null,exchangeFee:null,clearingFee:null,settlementFee:null,regulatoryFee:null,secFee:null,finraFee:null,futuresTax:null,mae:null,mfe:null,exchangeSource:null,cryptoProductType:null,priceSymbol:null});}}/>
   <div className="form-field"><label htmlFor={`${uid}-symbol`}>{tx('商品代號')}</label><Input id={`${uid}-symbol`} required maxLength={30} value={t.symbol} placeholder={t.market==='tw-index-futures'?'TXF / MXF / TMF':'MNQ / BTCUSDT'} onChange={e=>{const symbol=e.target.value.toUpperCase();onChange({...t,symbol,multiplier:isFuturesMarket(t.market)?multiplierForSymbol(symbol,t.multiplier):1});}}/></div>
   <Choice label={tx('交易方向')} value={t.side} options={[["long",tx('做多 Long')],["short",tx('做空 Short')]]} onChange={v=>set('side',v as Trade['side'])}/>
   <Choice label={tx('計價幣別')} value={t.currency} options={[["USD",tx('USD 美元')],["USDT","USDT"],["TWD",tx('TWD 新台幣')],["CNY",tx('CNY 人民幣')],["HKD",tx('HKD 港幣')]]} onChange={v=>onChange({...t,currency:v as Trade['currency'],riskAmount:null,mae:null,mfe:null})}/>
@@ -76,12 +76,15 @@ export default function TradeFields({trade:t,onChange:commit,notes=true}:{trade:
   {(['entryTime','exitTime'] as const).map((key,i)=><div className="form-field" key={key}><label htmlFor={`${uid}-${key}`}>{tx(i?'出場時間（{0}）':'進場時間（{0}）',[timezoneLabel])}</label><DateTime24 id={`${uid}-${key}`} label={i?tx('出場'):tx('進場')} value={t[key]} onChange={value=>set(key,value)}/></div>)}
   {numberField('entry',tx('平均進場價'))}{numberField('exit',tx('平均出場價'))}
   {isFuturesMarket(t.market)?<>{numberField('quantity',tx('口數'))}{numberField('multiplier',tx('每點乘數'))}</>:t.market==='crypto'?<>
-   <div className="form-field wide"><label htmlFor={`${uid}-value`}>{tx('進場倉位金額（')}{t.currency}）</label><Input id={`${uid}-value`} required type="number" min="0" step="any" value={positionValue(t)||''} placeholder={tx('例如：1,000')} onChange={e=>{const value=e.target.value===''?null:Number(e.target.value);onChange({...t,positionValue:value,quantity:value!=null&&t.entry>0?value/t.entry:0,multiplier:1});}}/></div>
+   <Choice label={tx('部位計算依據')} value={t.positionSizing??'unknown'} options={[["unknown",tx('請確認數量單位')],["notional",tx('進場倉位金額')],["base-quantity",tx('實際幣數')],["margin",tx('該筆保證金 × 槓桿')]]} onChange={v=>onChange({...t,positionSizing:v==='unknown'?null:v as Trade['positionSizing'],positionValue:v==='base-quantity'||v==='margin'?null:t.positionValue})}/>
+   {t.positionSizing==='base-quantity'?numberField('quantity',tx('實際幣數')):t.positionSizing==='margin'?<div className="form-field"><label htmlFor={`${uid}-margin`}>{tx('該筆進場保證金（{0}）',[t.currency])}</label><Input id={`${uid}-margin`} type="number" min="0" step="any" value={t.marginAmount??''} placeholder={tx('未知／不填')} onChange={e=>set('marginAmount',e.target.value===''?null:Number(e.target.value))}/></div>:<div className="form-field"><label htmlFor={`${uid}-value`}>{tx('進場倉位金額（')}{t.currency}）</label><Input id={`${uid}-value`} type="number" min="0" step="any" value={t.positionValue??''} placeholder={tx('例如：1,000')} onChange={e=>{const value=e.target.value===''?null:Number(e.target.value);onChange({...t,positionSizing:'notional',positionValue:value,quantity:value!=null&&t.entry>0?value/t.entry:0,multiplier:1});}}/></div>}
    <Choice label={tx('保證金模式')} value={t.marginMode??'unknown'} options={[["unknown",tx('尚未填寫')],["cross",tx('全倉')],["isolated",tx('逐倉')]]} onChange={v=>set('marginMode',v==='unknown'?null:v as Trade['marginMode'])}/>
-   <Choice label={tx('加密商品類型')} value={t.cryptoProductType??(t.cryptoProductType===undefined&&t.exchangeSource?'perpetual':'unknown')} options={[["unknown",tx('尚未確認')],["spot",tx('現貨')],["perpetual",tx('永續合約')]]} onChange={v=>onChange({...t,cryptoProductType:v==='unknown'?null:v as Trade['cryptoProductType'],exchangeSource:v==='unknown'?null:t.exchangeSource})}/>
-   <Choice label={tx('價格資料來源交易所（選填）')} value={t.exchangeSource??'none'} options={[["none",tx('未設定')],["bybit","Bybit"],["bitget","Bitget"],["okx","OKX"],["kucoin","KuCoin"],["bingx","BingX"],["mexc","MEXC"],["binance",'Binance '+tx('USDT 永續合約')]]} onChange={v=>set('exchangeSource',v==='none'?null:v as NonNullable<Trade['exchangeSource']>)}/>
-   <p className="market-metrics-note">{tx('行情分析自動依序查 Binance、OKX、Bybit、BingX；請確認現貨或永續類型，不需加密行情金鑰。')}</p>
+   <Choice label={tx('加密商品類型')} value={t.cryptoProductType??'unknown'} options={[["unknown",tx('尚未確認')],["spot",tx('現貨')],["perpetual",tx('永續合約')]]} onChange={v=>onChange({...t,cryptoProductType:v==='unknown'?null:v as Trade['cryptoProductType']})}/>
+   <Choice label={tx('原始交易所（選填）')} value={t.exchangeSource??'none'} options={[["none",tx('未設定')],["bybit","Bybit"],["bitget","Bitget"],["okx","OKX"],["kucoin","KuCoin"],["bingx","BingX"],["mexc","MEXC"],["binance",'Binance '+tx('USDT 永續合約')]]} onChange={v=>set('exchangeSource',v==='none'?null:v as NonNullable<Trade['exchangeSource']>)}/>
+   <p className="market-metrics-note">{tx('行情分析自動依序查 OKX、Bybit、BingX；請確認現貨或永續類型，不需加密行情金鑰。')}</p>
    <div className="form-field"><label htmlFor={`${uid}-leverage`}>{tx('槓桿倍數')}</label><Input id={`${uid}-leverage`} type="number" min="1" max="1000" step="any" value={t.leverage??''} placeholder={tx('例如：10')} onChange={e=>set('leverage',e.target.value===''?null:Number(e.target.value))}/></div>
+   {t.positionSizing!=='margin'&&<div className="form-field"><label htmlFor={`${uid}-margin`}>{tx('該筆進場保證金（{0}）',[t.currency])}</label><Input id={`${uid}-margin`} type="number" min="0" step="any" value={t.marginAmount??''} placeholder={tx('未知／不填')} onChange={e=>set('marginAmount',e.target.value===''?null:Number(e.target.value))}/></div>}
+   <p className="field-hint wide">{tx('只填此筆交易進場時的保證金，不填帳戶總資金。全倉共用資金不能代表此筆可承受的最大虧損。以保證金估算時需永續合約、全倉／逐倉與槓桿；已有實際幣數或倉位金額時，不會再乘一次槓桿。')}</p>
   </>:numberField('quantity',tx('股數'))}
   <div className="form-field wide"><label htmlFor={`${uid}-price-symbol`}>{tx('行情商品代號（選填）')}</label><Input id={`${uid}-price-symbol`} maxLength={30} value={t.priceSymbol??''} placeholder={tx('與交易商品相同可留白；期貨請填確切月份')} onChange={e=>set('priceSymbol',e.target.value||null)}/></div>
   <div className="form-field wide cost-section-heading"><h4>{tx('最大浮盈／最大浮虧（選填）')}</h4></div>
