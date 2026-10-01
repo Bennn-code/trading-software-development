@@ -8,7 +8,10 @@ export type Trade = {
   positionValue?: number | null; leverage?: number | null;
   marginMode?: 'cross' | 'isolated' | null; profitBasis?: 'net' | 'gross';
   /** Optional public-candle source used only for historical MAE/MFE analysis. */
-  exchangeSource?: 'bybit' | 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc' | null;
+  exchangeSource?: 'bybit' | 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc' | 'binance' | null;
+  cryptoProductType?: 'spot' | 'perpetual' | null;
+  /** Exact quote ticker/contract when it differs from the journal symbol. */
+  priceSymbol?: string | null;
   /** User-entered initial amount at risk, denominated in the trade currency. */
   riskAmount?: number | null;
   /** Optional excursions in the trade currency; MAE is stored as a negative amount. */

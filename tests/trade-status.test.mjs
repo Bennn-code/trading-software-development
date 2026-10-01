@@ -51,7 +51,7 @@ assert.equal(maeMfeCandleInWindow(Date.parse('2026-09-21T10:00:00Z'),oneMinuteWi
 assert.equal(maeMfeCandleInWindow(Date.parse('2026-09-21T10:01:00Z'),oneMinuteWindow),false,'the candle beginning at exit is never included');
 const fiveMinuteWindow=maeMfeCandleWindow(Date.parse('2026-09-21T10:01:00Z'),Date.parse('2026-09-21T10:11:00Z'),5);
 assert.deepEqual([fiveMinuteWindow.start,fiveMinuteWindow.end],[Date.parse('2026-09-21T10:00:00Z'),Date.parse('2026-09-21T10:10:00Z')],'coarser windows include the entry/exit buckets but not the bucket starting exactly at exit');
-const expectedIntervals={bybit:['1','5','15','60','240'],bitget:['1m','5m','15m','1H','4H'],okx:['1m','5m','15m','1H','4H'],kucoin:['60','300','900','3600','14400'],bingx:['1m','5m','15m','1h','4h'],mexc:['Min1','Min5','Min15','Min60','Hour4']};
+const expectedIntervals={bybit:['1','5','15','60','240'],bitget:['1m','5m','15m','1H','4H'],okx:['1m','5m','15m','1H','4H'],kucoin:['60','300','900','3600','14400'],bingx:['1m','5m','15m','1h','4h'],mexc:['Min1','Min5','Min15','Min60','Hour4'],binance:['1m','5m','15m','1h','4h']};
 for(const [provider,codes] of Object.entries(expectedIntervals))for(const [index,minutes] of [1,5,15,60,240].entries())assert.equal(maeMfeProviderInterval(provider,minutes),codes[index],`${provider} encodes ${minutes}m using its documented interval value`);
 const strategyStats=enteredStrategyStats([
  {...rTrade('strategy-1',10,'突破、回測'),market:'crypto'},
@@ -75,9 +75,13 @@ assert.notEqual(maeMfeFingerprint([{...fingerprintSource,side:'short'}]),fingerp
 assert.notEqual(maeMfeFingerprint([{...fingerprintSource,timezone:'America/New_York'}]),fingerprint,'changing the trade timezone invalidates cached MAE/MFE');
 assert.notEqual(maeMfeFingerprint([{...fingerprintSource,multiplier:2}]),fingerprint,'changing the contract multiplier invalidates cached MAE/MFE');
 const concentration=profitConcentration([rTrade('p1',100),rTrade('p2',-50),rTrade('p3',50)]);
-assert.ok(Math.abs(concentration[0].share-100*2/3)<1e-10);
-assert.equal(concentration[1].share,100);
-assert.equal(concentration[2].share,null,'losses stop the positive-profit concentration curve instead of holding it at 100%');
+assert.equal(concentration[0].trade.id,'p1');assert.ok(Math.abs(concentration[0].profitShare-100*2/3)<1e-10);assert.ok(Math.abs(concentration[0].cumulativeProfitShare-100*2/3)<1e-10);
+assert.ok(Math.abs(concentration[1].profitShare-100/3)<1e-10);assert.equal(concentration[1].cumulativeProfitShare,100);
+assert.equal(concentration[2].lossShare,100);assert.equal(concentration[2].cumulativeLossShare,100,'loss shares use their own absolute-loss denominator');
+assert.equal(concentration[2].cumulativeProfitShare,100,'profit share stays complete when the sorted chart continues into losses');assert.equal(concentration[0].cumulativeLossShare,0,'loss share begins at zero before the first loss');
+const profitOnly=profitConcentration([rTrade('po1',30),rTrade('po2',70)]);assert.equal(profitOnly[1].cumulativeProfitShare,100);assert.equal(profitOnly[0].lossShare,null);
+const lossOnly=profitConcentration([rTrade('lo1',-25),rTrade('lo2',-75)]);assert.equal(lossOnly[0].lossShare,25);assert.equal(lossOnly[1].cumulativeLossShare,100);assert.equal(lossOnly[0].profitShare,null);
+const breakEven=profitConcentration([rTrade('be1',0)])[0];assert.equal(breakEven.profitShare,null);assert.equal(breakEven.lossShare,null,'break-even trades do not enter either share denominator');
 const sequence=[
  {...rTrade('s1',-5),entryTime:'2026-09-21T09:00',exitTime:'2026-09-21T10:00',positionValue:1000},
  {...rTrade('s2',-4),entryTime:'2026-09-21T10:00',exitTime:'2026-09-21T11:00',positionValue:1200},

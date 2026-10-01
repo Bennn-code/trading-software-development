@@ -246,7 +246,7 @@ export async function POST(request: Request, { params }: Params) {
         : provider === 'kucoin' ? mapKucoinUtaPosition(row as KucoinUtaHistoryPosition, profileScope, timezone)
           : provider === 'bingx' ? mapBingxPosition(row as BingxHistoryPosition, profileScope, timezone)
             : mapMexcPosition(row as MexcHistoryPosition, profileScope, timezone)));
-    const trades = mapped.filter((trade): trade is NonNullable<typeof trade> => trade !== null).map(trade => ({ ...trade, exchangeSource: provider as 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc' }));
+    const trades = mapped.filter((trade): trade is NonNullable<typeof trade> => trade !== null).map(trade => ({ ...trade, cryptoProductType: 'perpetual' as const, exchangeSource: provider as 'bitget' | 'okx' | 'kucoin' | 'bingx' | 'mexc' }));
     await recordSecurityEvent(request, 'api_trade_imported', owner, { provider, count: trades.length, startDate, endDate });
     const warnings = provider === 'bitget'
       ? ['僅匯入 Bitget USDT-M 期貨已平倉部位；損益採用交易所回傳的 netProfit，不會重複扣除費用或資金費。其他市場及未平倉部位不在此範圍。']

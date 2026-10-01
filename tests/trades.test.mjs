@@ -53,7 +53,7 @@ assert.equal(tradeSchema.safeParse({...t,exitTime:'2026-02-30T12:00'}).success,f
 assert.equal(tradeSchema.safeParse({...t,leverage:0}).success,false);
 assert.equal(tradeSchema.safeParse({...t,positionValue:0}).success,false);
 assert.equal(weightedPrice([{price:100,quantity:1},{price:200,quantity:3}]),175);
-const row={sourceLabel:'第1筆',symbol:'MNQ',market:'futures',side:'long',currency:'USD',entryTime:'2026-09-14T20:00',exitTime:'2026-09-14T21:00',entry:100,exit:110,quantity:1,multiplier:null,fees:null,funding:null,netProfit:null,netProfitIsNet:false,strategy:null,entryFills:[],exitFills:[],completeFillHistory:false,warnings:[]};
+const row={sourceLabel:'第1筆',symbol:'MNQ',market:'futures',side:'long',currency:'USD',entryTime:'2026-09-14T20:00',exitTime:'2026-09-14T21:00',entry:100,exit:110,quantity:1,multiplier:null,mae:null,mfe:null,exchangeSource:null,isPerpetual:null,fees:null,funding:null,netProfit:null,netProfitIsNet:false,strategy:null,entryFills:[],exitFills:[],completeFillHistory:false,warnings:[]};
 const ctx={id:crypto.randomUUID(),imageId:crypto.randomUUID(),account:'測試',offset:0};
 let normalized=normalizeRow(row,ctx);assert.equal(normalized.trade.entry,100);assert.equal(normalized.trade.strategy,'');assert.equal(normalized.trade.multiplier,2);assert.equal(normalized.trade.entryTime,'2026-09-15T04:00');
 normalized=normalizeRow({...row,symbol:'TXFF6',market:'futures',currency:'USD',entry:100,exit:101,quantity:1,multiplier:null},ctx);

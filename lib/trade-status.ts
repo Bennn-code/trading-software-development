@@ -88,15 +88,19 @@ export function lossRecoveryStats(trades:Trade[]):LossRecoveryStat[]{
  }).sort((a,b)=>a.market.localeCompare(b.market)||a.currency.localeCompare(b.currency));
 }
 
-export type ProfitConcentrationPoint={index:number;trade:Trade;net:number;share:number|null};
+export type ProfitConcentrationPoint={index:number;trade:Trade;net:number;profitShare:number|null;cumulativeProfitShare:number|null;lossShare:number|null;cumulativeLossShare:number|null};
 export function profitConcentration(trades:Trade[]):ProfitConcentrationPoint[]{
  const ordered=[...trades].map(trade=>({trade,net:pnl(trade)})).filter(item=>Number.isFinite(item.net)).sort((a,b)=>b.net-a.net||a.trade.exitTime.localeCompare(b.trade.exitTime));
- const positiveTotal=ordered.reduce((sum,item)=>sum+Math.max(0,item.net),0);let cumulative=0;
- return ordered.map((item,index)=>{if(item.net<=0)return{index:index+1,trade:item.trade,net:item.net,share:null};cumulative+=item.net;return{index:index+1,trade:item.trade,net:item.net,share:positiveTotal>0?cumulative/positiveTotal*100:null};});
+ const positiveTotal=ordered.reduce((sum,item)=>sum+Math.max(0,item.net),0),negativeTotal=ordered.reduce((sum,item)=>sum+Math.max(0,-item.net),0);let cumulativeProfit=0,cumulativeLoss=0;
+ return ordered.map((item,index)=>{
+  if(item.net>0){cumulativeProfit+=item.net;return{index:index+1,trade:item.trade,net:item.net,profitShare:positiveTotal>0?item.net/positiveTotal*100:null,cumulativeProfitShare:positiveTotal>0?cumulativeProfit/positiveTotal*100:null,lossShare:null,cumulativeLossShare:negativeTotal>0?0:null};}
+  if(item.net<0){const loss=Math.abs(item.net);cumulativeLoss+=loss;return{index:index+1,trade:item.trade,net:item.net,profitShare:null,cumulativeProfitShare:positiveTotal>0?100:null,lossShare:negativeTotal>0?loss/negativeTotal*100:null,cumulativeLossShare:negativeTotal>0?cumulativeLoss/negativeTotal*100:null};}
+  return{index:index+1,trade:item.trade,net:item.net,profitShare:null,cumulativeProfitShare:positiveTotal>0?cumulativeProfit/positiveTotal*100:null,lossShare:null,cumulativeLossShare:negativeTotal>0?0:null};
+ });
 }
 
 export type CandleRange={high:number;low:number};
-export type MaeMfeProvider='bybit'|'bitget'|'okx'|'kucoin'|'bingx'|'mexc';
+export type MaeMfeProvider='bybit'|'bitget'|'okx'|'kucoin'|'bingx'|'mexc'|'binance';
 export const maeMfeIntervals=[
  {minutes:1,label:'1m'},
  {minutes:5,label:'5m'},
@@ -111,6 +115,7 @@ const maeMfeProviderIntervalCodes:Record<MaeMfeProvider,Record<number,string>>={
  kucoin:{1:'60',5:'300',15:'900',60:'3600',240:'14400'},
  bingx:{1:'1m',5:'5m',15:'15m',60:'1h',240:'4h'},
  mexc:{1:'Min1',5:'Min5',15:'Min15',60:'Min60',240:'Hour4'},
+ binance:{1:'1m',5:'5m',15:'15m',60:'1h',240:'4h'},
 };
 export function maeMfeIntervalLabel(minutes:number){return maeMfeIntervals.find(interval=>interval.minutes===minutes)?.label??`${minutes}m`;}
 export function maeMfeProviderInterval(provider:MaeMfeProvider,minutes:number){return maeMfeProviderIntervalCodes[provider][minutes]??null;}
@@ -126,7 +131,7 @@ export function maeMfeCandleWindow(entryMs:number,exitMs:number,intervalMinutes:
 }
 export function maeMfeCandleInWindow(candleTime:number,window:MaeMfeCandleWindow){return Number.isFinite(candleTime)&&candleTime>=window.start&&candleTime<=window.end;}
 export function maeMfeFingerprint(trades:Trade[]){
- return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.mae,trade.mfe,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+ return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.cryptoProductType,trade.priceSymbol,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.mae,trade.mfe,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
 }
 export type MaeMfeTrade=Pick<Trade,'market'|'entry'|'exit'|'quantity'|'side'|'multiplier'>&Partial<Trade>;
 export function calculateMaeMfe(trade:MaeMfeTrade,candles:CandleRange[]){
