@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { cryptoProductForTrade, type Trade } from '@/lib/trades';
+import { cryptoProductForTrade, cryptoExcursionPosition, type Trade } from '@/lib/trades';
 import { tradeSchema } from '@/lib/validation';
 import { convertWallTime } from '@/lib/display-currency';
 import { excursionInput, fillExcursions, type ExcursionResult } from '@/lib/trade-excursions';
@@ -15,7 +15,7 @@ export default function useScreenshotExcursions(enabled: boolean, rows: ImportCa
   const eligible = useMemo(() => rows.flatMap(row => {
     if (!row.selected || row.trade.market !== 'crypto' || !cryptoProductForTrade(row.trade) || row.trade.currency !== 'USDT' || (row.trade.mae != null && row.trade.mfe != null)) return [];
     const parsed = tradeSchema.safeParse(row.trade);
-    if (!parsed.success || parsed.data.entry <= 0 || parsed.data.exit <= 0 || parsed.data.quantity <= 0 || parsed.data.exitTime <= parsed.data.entryTime) return [];
+    if (!parsed.success || parsed.data.entry <= 0 || parsed.data.exit <= 0 || !cryptoExcursionPosition(parsed.data) || parsed.data.exitTime <= parsed.data.entryTime) return [];
     try {
       if (Date.parse(`${convertWallTime(parsed.data.exitTime, parsed.data.timezone ?? 'Asia/Taipei', 'UTC')}:00Z`) > Date.now()) return [];
     } catch { return []; }

@@ -3,7 +3,8 @@ import { cryptoExcursionPosition, cryptoProductForTrade, type ExcursionSizeBasis
 /** Excludes notes, account and optional excursions so edits to those cannot invalidate prices. */
 export function excursionInput(trade: Trade) {
   const position = trade.market === 'crypto' ? cryptoExcursionPosition(trade) : null;
-  return JSON.stringify([2,trade.market, trade.symbol, trade.priceSymbol ?? null, trade.currency, trade.side, trade.entryTime, trade.exitTime, trade.timezone ?? 'Asia/Taipei', trade.entry, trade.exit, position?.quantity??trade.quantity, trade.market === 'crypto' ? 1 : trade.multiplier, trade.market==='crypto'?position?.notional??null:trade.positionValue??null, cryptoProductForTrade(trade),trade.positionSizing??null,trade.marginAmount??null,trade.leverage??null,trade.marginMode??null]);
+  // Leave existing signatures stable: introducing a new sizing choice must not discard v81 results.
+  return JSON.stringify([2,trade.market, trade.symbol, trade.priceSymbol ?? null, trade.currency, trade.side, trade.entryTime, trade.exitTime, trade.timezone ?? 'Asia/Taipei', trade.entry, trade.exit, position?.quantity??trade.quantity, trade.market === 'crypto' ? 1 : trade.multiplier, trade.market==='crypto'?position?.notional??null:trade.positionValue??null, cryptoProductForTrade(trade),trade.positionSizing??null,trade.marginAmount??null,trade.leverage??null,trade.marginMode??null,...(trade.positionSizing==='closing-notional'?[trade.closingPositionValue??null]:[])]);
 }
 export function savedExcursions(trade: Trade) {
   const estimate = trade.excursionEstimate, valid = estimate?.calculationVersion===2&&estimate?.input === excursionInput(trade);

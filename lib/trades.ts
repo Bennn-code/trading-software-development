@@ -1,6 +1,6 @@
 /** An OHLC bucket containing an excursion; never an exact intrabar timestamp. */
 export type ExcursionTime = { start: number; end: number; elapsedStartMinutes: number; elapsedEndMinutes: number };
-export type PositionSizing = 'notional' | 'base-quantity' | 'margin';
+export type PositionSizing = 'notional' | 'closing-notional' | 'base-quantity' | 'margin';
 export type ExcursionSizeBasis = PositionSizing | 'contracts' | 'shares';
 export type ExcursionEstimate = { input: string; provider: string; timeframe: string; referenceSymbol: string; productType: string; candleCount: number; mae: number | null; mfe: number | null; calculationVersion?: number; sizeBasis?: ExcursionSizeBasis; maeTime?: ExcursionTime | null; mfeTime?: ExcursionTime | null };
 export type Trade = {
@@ -11,6 +11,8 @@ export type Trade = {
   funding: number | null; strategy: string; notes: string; imageId: string | null;
   netOverride: number | null;
   positionValue?: number | null; leverage?: number | null;
+  /** Explicit quote-currency position amount at close; divide by exit price to recover base size. */
+  closingPositionValue?: number | null;
   /** Position-specific initial margin at entry, not total wallet collateral. */
   marginAmount?: number | null;
   /** Explicit units used for historical excursion estimation. */
@@ -57,6 +59,9 @@ export function cryptoExcursionPosition(t:Pick<Trade,'market'|'entry'|'quantity'
  if(mode==='margin'){
   if(t.currency!=='USDT'||cryptoProductForTrade(t as Trade)!=='perpetual'||!t.marginMode||!Number.isFinite(t.marginAmount)||t.marginAmount!<=0||!Number.isFinite(t.leverage)||t.leverage!<1||t.leverage!>1000)return null;
   notional=t.marginAmount!*t.leverage!;quantity=notional/t.entry;
+ }else if(mode==='closing-notional'){
+  if(t.currency!=='USDT'||!Number.isFinite(t.closingPositionValue)||t.closingPositionValue!<=0||!Number.isFinite(t.exit)||t.exit!<=0)return null;
+  quantity=t.closingPositionValue!/t.exit!;notional=quantity*t.entry;
  }else if(mode==='notional'){
   if(!Number.isFinite(t.positionValue)||t.positionValue!<=0)return null;
   notional=t.positionValue!;quantity=notional/t.entry;

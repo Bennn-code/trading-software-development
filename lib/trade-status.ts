@@ -141,7 +141,7 @@ export function maeMfeCandleWindow(entryMs:number,exitMs:number,intervalMinutes:
 }
 export function maeMfeCandleInWindow(candleTime:number,window:MaeMfeCandleWindow){return Number.isFinite(candleTime)&&candleTime>=window.start&&candleTime<=window.end;}
 export function maeMfeFingerprint(trades:Trade[]){
- return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.cryptoProductType,trade.priceSymbol,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.positionSizing,trade.marginAmount,trade.leverage,trade.marginMode,trade.mae,trade.mfe,pnl(trade)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+ return JSON.stringify(trades.map(trade=>[trade.id,trade.market,trade.currency,trade.exchangeSource,trade.cryptoProductType,trade.priceSymbol,trade.symbol,trade.side,trade.entryTime,trade.exitTime,trade.timezone,trade.entry,trade.exit,trade.quantity,trade.multiplier,trade.positionValue,trade.positionSizing,trade.marginAmount,trade.leverage,trade.marginMode,trade.mae,trade.mfe,pnl(trade),...(trade.positionSizing==='closing-notional'?[trade.closingPositionValue??null]:[])]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
 }
 export type MaeMfeTrade=Pick<Trade,'market'|'entry'|'exit'|'quantity'|'side'|'multiplier'>&Partial<Trade>;
 function extremeTime(trade:MaeMfeTrade,candles:CandleRange[],price:number,field:'high'|'low',intervalMinutes?:number):ExcursionTime|null{
