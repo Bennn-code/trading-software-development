@@ -77,7 +77,7 @@ try {
   ];
   const presented = displayTrades(canonical, 'UTC');
   const historical = render(presented, ['loss-recovery'], { analysisTrades: canonical, timezone: 'UTC', range: { start: '2026-09-21', end: '2026-09-21', valid: true, caption: 'Day' } });
-  assert.equal(metric(historical, '最大回撤金額'), '-30 USD', 'source timezones restore the actual settlement chronology');
+  assert.equal(metric(historical, '本期最大回撤金額'), '-30 USD', 'source timezones restore the actual settlement chronology');
   assert.equal(metric(historical, '目前回撤金額'), '-30 USD');
   assert.equal(metric(historical, '目前尚未恢復所經時間'), '23.0 小時', 'historical observation stops at the selected viewer-timezone day end');
   assert.ok(text(historical).includes('觀察截止 · 2026-09-21'));

@@ -21,12 +21,17 @@ function holdingMillis(value:string,timezone?:string){
  try{return convertWallTime(new Date(instant).toISOString().slice(0,16),'UTC',timezone??'Asia/Taipei')===minute?instant:NaN;}catch{return NaN;}
 }
 /** The caller supplies one entry-period/market/currency group; invalid holding times are absent. */
-export function holdingTimeStats(trades:Trade[]):HoldingTimeStat[]{
+export function holdingTimeStats(trades:Trade[],readMinutes?:(trade:Trade)=>number):HoldingTimeStat[]{
  const groups=new Map<number,Trade[]>();
  for(const trade of trades){
-  const entry=holdingMillis(trade.entryTime,trade.timezone),exit=holdingMillis(trade.exitTime,trade.timezone);
-  if(!Number.isFinite(entry)||!Number.isFinite(exit)||exit<entry)continue;
-  const position=holdingTimeBucket((exit-entry)/60000);
+  let minutes:number;
+  if(readMinutes)minutes=readMinutes(trade);
+  else{
+   const entry=holdingMillis(trade.entryTime,trade.timezone),exit=holdingMillis(trade.exitTime,trade.timezone);
+   if(!Number.isFinite(entry)||!Number.isFinite(exit)||exit<entry)continue;
+   minutes=(exit-entry)/60000;
+  }
+  const position=holdingTimeBucket(minutes);
   if(position===null)continue;
   const rows=groups.get(position);
   if(rows)rows.push(trade);else groups.set(position,[trade]);
@@ -94,17 +99,17 @@ export function averageReturnPercent(trades:Trade[]){
 
 export type LossRecoveryStat={market:Trade['market'];currency:Trade['currency'];count:number;maxLosingStreak:number;maxRecoveryMinutes:number|null;currentRecoveryMinutes:number|null;postStreakSamples:number;postStreakIncreases:number};
 function positionSize(trade:Trade){return Number.isFinite(trade.positionValue)&&trade.positionValue!>0?{value:trade.positionValue!,unit:'notional' as const}:Number.isFinite(trade.quantity)&&trade.quantity>0?{value:trade.quantity,unit:'quantity' as const}:null;}
-export function lossRecoveryStats(trades:Trade[]):LossRecoveryStat[]{
+export function lossRecoveryStats(trades:Trade[],readTimestamp:(value:string,timezone?:string)=>number=utcMillis):LossRecoveryStat[]{
  const groups=new Map<string,Trade[]>();
  for(const trade of trades){const key=`${trade.market}|${trade.currency}`;groups.set(key,[...(groups.get(key)??[]),trade]);}
  return [...groups.values()].map(rows=>{
-  rows.sort((a,b)=>utcMillis(a.exitTime,a.timezone)-utcMillis(b.exitTime,b.timezone)||utcMillis(a.entryTime,a.timezone)-utcMillis(b.entryTime,b.timezone)||(a.id??'').localeCompare(b.id??''));
-  let equity=0,peak=0,peakTime=rows.length?utcMillis(rows[0].entryTime,rows[0].timezone):0,streak=0,maxLosingStreak=0,drawdownStart:number|null=null,maxRecoveryMinutes:number|null=null,currentRecoveryMinutes:number|null=null;
-  for(const trade of rows){const value=pnl(trade),exit=utcMillis(trade.exitTime,trade.timezone);if(value<0){streak++;maxLosingStreak=Math.max(maxLosingStreak,streak);}else streak=0;equity+=value;
+  rows.sort((a,b)=>readTimestamp(a.exitTime,a.timezone)-readTimestamp(b.exitTime,b.timezone)||readTimestamp(a.entryTime,a.timezone)-readTimestamp(b.entryTime,b.timezone)||(a.id??'').localeCompare(b.id??''));
+  let equity=0,peak=0,peakTime=rows.length?readTimestamp(rows[0].entryTime,rows[0].timezone):0,streak=0,maxLosingStreak=0,drawdownStart:number|null=null,maxRecoveryMinutes:number|null=null,currentRecoveryMinutes:number|null=null;
+  for(const trade of rows){const value=pnl(trade),exit=readTimestamp(trade.exitTime,trade.timezone);if(value<0){streak++;maxLosingStreak=Math.max(maxLosingStreak,streak);}else streak=0;equity+=value;
    if(equity<peak&&drawdownStart===null)drawdownStart=peakTime;
    if(equity>=peak){if(drawdownStart!==null&&Number.isFinite(exit)){const elapsed=Math.max(0,(exit-drawdownStart)/60000);maxRecoveryMinutes=maxRecoveryMinutes===null?elapsed:Math.max(maxRecoveryMinutes,elapsed);}peak=equity;peakTime=exit;drawdownStart=null;}
   }
-  if(drawdownStart!==null&&rows.length){const last=utcMillis(rows[rows.length-1].exitTime,rows[rows.length-1].timezone);if(Number.isFinite(last))currentRecoveryMinutes=Math.max(0,(last-drawdownStart)/60000);}
+  if(drawdownStart!==null&&rows.length){const last=readTimestamp(rows[rows.length-1].exitTime,rows[rows.length-1].timezone);if(Number.isFinite(last))currentRecoveryMinutes=Math.max(0,(last-drawdownStart)/60000);}
   const symbolGroups=new Map<string,Trade[]>();for(const trade of rows)symbolGroups.set(trade.symbol,[...(symbolGroups.get(trade.symbol)??[]),trade]);
   let postStreakSamples=0,postStreakIncreases=0;
   for(const symbolRows of symbolGroups.values()){

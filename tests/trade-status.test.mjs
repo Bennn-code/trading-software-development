@@ -79,6 +79,28 @@ assert.deepEqual(holdingTimeStats([
  {position:60,label:'1h',count:1,winRate:0},
  {position:49*60,label:'49h',count:1,winRate:100},
 ],'valid holdings across the spring DST jump use actual elapsed time: two wall-clock hours are one hour, and fifty wall-clock hours are forty-nine');
+const preciseHoldingRows=[
+ trade('2026-09-23T09:00:00+08:00',10,1000,'2026-09-21T09:00:01+08:00'),
+ trade('2026-09-23T10:00:00+08:00',0,1000,'2026-09-21T09:00:00+08:00'),
+ trade('2026-09-23T11:00:00+08:00',-5,1000,'2026-09-21T09:00:00+08:00'),
+ trade('2026-09-25T09:00:00+08:00',10,1000,'2026-09-21T09:00:00+08:00'),
+ dstHolding('2026-11-01T01:30:00-04:00','2026-11-01T01:30:00-05:00',10),
+];
+const preciseHoldingReader=row=>(Date.parse(row.exitTime)-Date.parse(row.entryTime))/60000;
+assert.deepEqual(holdingTimeStats(preciseHoldingRows,preciseHoldingReader),[
+ {position:60,label:'1h',count:1,winRate:100},
+ {position:47*60,label:'47h',count:1,winRate:100},
+ {position:49*60,label:'49h',count:1,winRate:0},
+ {position:50*60,label:'50h',count:1,winRate:0},
+ {position:96*60,label:'96h',count:1,winRate:100},
+],'a canonical-duration reader retains seconds and explicit DST offsets, while hourly buckets keep the v84 unlimited range');
+const suppliedMinutes=[0,NaN,Infinity,-Infinity,-1,49*60];
+let holdingReaderCalls=0;
+assert.deepEqual(holdingTimeStats(suppliedMinutes.map((_,index)=>({...trade('',index===5?10:0),id:index})),row=>{holdingReaderCalls++;return suppliedMinutes[row.id];}),[
+ {position:0,label:'0–5m',count:1,winRate:0},
+ {position:49*60,label:'49h',count:1,winRate:100},
+],'custom readers may supply canonical times; zero remains valid and nonfinite/negative values cannot enter a bucket');
+assert.equal(holdingReaderCalls,suppliedMinutes.length,'the canonical duration callback is read exactly once per supplied trade');
 assert.equal(averageDurationMinutes([trade('2026-09-21T10:00',10),trade('2026-09-21T11:00',-10)]),90);
 assert.equal(averageDurationMinutes([]),null);
 const enteredInRange={...trade('2026-10-01T00:10',10),'entryTime':'2026-09-30T23:50'};
@@ -172,4 +194,24 @@ const losingAfterStreak=[
 const afterLoss=lossRecoveryStats(losingAfterStreak)[0];
 assert.equal(afterLoss.postStreakSamples,1,'the next trade after a losing streak is sampled even when it also loses');
 assert.equal(afterLoss.postStreakIncreases,1);
+const preciseTimestamp=value=>Date.parse(value);
+const sameMinuteLosses=[
+ {...rTrade('a',-1),entryTime:'2026-09-21T09:00:00Z',exitTime:'2026-09-21T10:00:10Z'},
+ {...rTrade('c',1),entryTime:'2026-09-21T09:00:00Z',exitTime:'2026-09-21T10:00:20Z'},
+ {...rTrade('b',-1),entryTime:'2026-09-21T09:00:00Z',exitTime:'2026-09-21T10:00:30Z'},
+];
+const preciseRecovery=lossRecoveryStats(sameMinuteLosses,preciseTimestamp)[0];
+assert.equal(preciseRecovery.maxLosingStreak,1,'loss/win/loss seconds within one minute are not reordered by alphabetical ids into a false two-loss streak');
+assert.equal(preciseRecovery.postStreakSamples,0,'false minute-bucket losing streaks cannot create a post-streak position-change sample');
+assert.equal(preciseRecovery.maxRecoveryMinutes,60+20/60,'the supplied timestamp reader also preserves recovery seconds');
+assert.equal(preciseRecovery.currentRecoveryMinutes,10/60);
+assert.deepEqual(lossRecoveryStats(sameMinuteLosses.toReversed(),preciseTimestamp),[preciseRecovery],'precise exit ordering is independent of the supplied array order');
+const sameExitDifferentEntries=sameMinuteLosses.map((row,index)=>({...row,entryTime:`2026-09-21T09:00:${String((index+1)*10).padStart(2,'0')}Z`,exitTime:'2026-09-21T10:00:30Z'}));
+assert.equal(lossRecoveryStats(sameExitDifferentEntries,preciseTimestamp)[0].maxLosingStreak,1,'equal exit instants use full entry instants before the id tie-breaker');
+const sameInstants=[
+ {...sameMinuteLosses[0],id:'a',exitTime:'2026-09-21T10:00:30Z'},
+ {...sameMinuteLosses[1],id:'b',exitTime:'2026-09-21T10:00:30Z'},
+ {...sameMinuteLosses[2],id:'c',exitTime:'2026-09-21T10:00:30Z'},
+];
+assert.equal(lossRecoveryStats(sameInstants.toReversed(),preciseTimestamp)[0].maxLosingStreak,1,'equal entry and exit instants use the same deterministic id ordering as the ongoing-streak helper');
 console.log('Passed strategy preferences, multi-exchange candle intervals and boundaries, MAE/MFE, concentration, recovery, holding-time, Sharpe and date-range checks.');

@@ -8,14 +8,15 @@ import ConvertedMoney from './converted-money';
 import CryptoQuoteSourceSelect, { useCryptoQuoteSource } from './crypto-quote-source';
 import MarketDataSettings from './market-data-settings';
 import { StrategyPerformanceCharts, ProductDirectionCharts, NetPnlDistributionCharts, StrategyPreferenceChart } from './trade-performance-cards';
-import { realizedDrawdownStats, strategyPerformanceStats, productDirectionStats, netPnlDistributionStats, settledPerformanceTrades, type RealizedDrawdownStat } from '@/lib/trade-performance';
+import { realizedDrawdownStats, strategyPerformanceStats, productDirectionStats, netPnlDistributionStats, settledPerformanceTrades, tradeTimestamp, type RealizedDrawdownStat } from '@/lib/trade-performance';
+import { reportTradeCohorts, holdingMinutes, averageHoldingMinutes, currentLossStreaks } from '@/lib/report-cohorts';
 import { performanceCurrencyTrades, performanceFxFactor } from '@/lib/performance-currency';
 import type { QuoteKeys } from '@/lib/market-candles';
 import { mergeMaeMfeBatch, retryableMaeMfe, type MaeMfeBatch, type MaeMfeQueueState } from '@/lib/mae-mfe-queue';
 import { hydrateMaeMfeQueue } from '@/lib/mae-mfe-state';
 import { savedExcursions } from '@/lib/trade-excursions';
 import { overallMaeMfe } from '@/lib/mae-mfe-summary';
-import { convertWallTime, type ExchangeRates } from '@/lib/display-currency';
+import { type ExchangeRates } from '@/lib/display-currency';
 import InfoTooltip from '@/components/info-tooltip';
 import FavoriteStar from '@/components/favorite-star';
 import { cryptoExcursionPosition, cryptoProductForTrade, marketName, pnl, positionValue, type ExcursionTime, type Trade } from '@/lib/trades';
@@ -23,12 +24,12 @@ import { Choice } from './trade-fields';
 import { tradeStatusFavoriteDomId, tradeStatusFavoriteTitle } from '@/lib/trade-status-favorites';
 import { utcOffsetLabel, timezoneName } from '@/lib/preferences';
 import type { DateRange, ReportPeriod } from '@/lib/report-period';
-import { averageDurationMinutes, averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, excursionPerformance, enteredStrategyStats, hasEnteredStrategies, holdingTimeStats, inEntryDateRange, lossRecoveryStats, maeMfeFingerprint, mistakeStats, profitConcentration, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
+import { averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, excursionPerformance, enteredStrategyStats, hasEnteredStrategies, holdingTimeStats, lossRecoveryStats, maeMfeFingerprint, mistakeStats, profitConcentration, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
 
 type Community = { mistakes: { name: string; count: number; percent: number }[]; profit: { label: string; value: number; currency: string }[]; returns: { label: string; value: number }[]; sampleSize: number };
 type Summary = { overview: string; strategySummary: string; reflectionSummary: string; strengths: string[]; improvements: string[]; nextSteps: string[] };
 type TimeBucket = { position: number; label: string; count: number; winRate: number | null };
-type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; averageDuration: number | null; previousAverageDuration: number | null; averageWinDuration: number | null; averageLossDuration: number | null; bestWeekday: { weekday: number; net: number } | null; worstWeekday: { weekday: number; net: number } | null; sharpe: number | null; expectancy: number; expectancyPercent: number | null };
+type ProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; durationCount: number; winningDurationCount: number; losingDurationCount: number; averageDuration: number | null; previousAverageDuration: number | null; averageWinDuration: number | null; averageLossDuration: number | null; bestWeekday: { weekday: number; net: number } | null; worstWeekday: { weekday: number; net: number } | null; sharpe: number | null; expectancy: number; expectancyPercent: number | null };
 type TimeProductCharts = { market: Trade['market']; currency: Trade['currency']; count: number; clock: TimeBucket[]; holding: TimeBucket[] };
 type MaeMfeRow = {maeTime?:ExcursionTime|null;mfeTime?:ExcursionTime|null;sizeBasis?:string; referenceSymbol?:string;productType?:string;id:string;provider:string;timeframe?:string;market:Trade['market'];symbol:string;currency:string;mae:number|null;mfe:number|null;actual:number;candleCount:number;entryTime:string;manualMae?:boolean;manualMfe?:boolean;displayFactor?:number };
 type MaeMfeAnalysis = MaeMfeQueueState<MaeMfeRow> & { selectionKey:string };
@@ -102,33 +103,24 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     return () => controller.abort();
   }, [signedIn, demo, period, anchor, range.start, range.end, favoritesOnly, favoriteIds]);
 
-  const selected = useMemo(() => range.start && range.end
-    ? trades.filter(trade => trade.exitTime.slice(0, 10) >= range.start && trade.exitTime.slice(0, 10) <= range.end)
-    : trades, [trades, range.start, range.end]);
-  const timeSelected = useMemo(() => range.start && range.end
-    ? inEntryDateRange(trades, range.start, range.end)
-    : trades, [trades, range.start, range.end]);
   const canonical=useMemo(()=>new Map(analysisTrades.map(trade=>[trade.id,trade])),[analysisTrades]);
-  const quoteTrades=useMemo(()=>selected.map(trade=>canonical.get(trade.id)??trade),[selected,canonical]);
   const [observationTime,setObservationTime]=useState(()=>Date.now());
   useEffect(()=>{
     const update=()=>setObservationTime(Date.now()),timer=setTimeout(update,0),interval=setInterval(update,60000);
     return()=>{clearTimeout(timer);clearInterval(interval);};
-  },[quoteTrades,range.end,timezone]);
-  const observedAt=useMemo(()=>{
-    const end=Date.parse(`${range.end}T00:00:00Z`);
-    if(!Number.isFinite(end))return observationTime;
-    const nextDay=new Date(end+86400000).toISOString().slice(0,10);
-    return Math.min(observationTime,Date.parse(convertWallTime(`${nextDay}T00:00`,timezone,'UTC')+':00Z')-1);
-  },[range.end,timezone,observationTime]);
+  },[trades,range.end,timezone]);
+  const cohorts=useMemo(()=>reportTradeCohorts(trades,analysisTrades,{start:range.start,end:range.end},timezone,observationTime),[trades,analysisTrades,range.start,range.end,timezone,observationTime]);
+  const {selected,timeSelected,quoteTrades,observedAt}=cohorts;
+  const historyRecovery=useMemo(()=>lossRecoveryStats(cohorts.historyTrades.filter(trade=>Number.isFinite(pnl(trade))),tradeTimestamp),[cohorts.historyTrades]);
+  const historyStreaks=useMemo(()=>currentLossStreaks(cohorts.historyTrades),[cohorts.historyTrades]);
   const performance=useMemo(()=>{
-    const converted=performanceCurrencyTrades(settledPerformanceTrades(quoteTrades,observedAt),baseCurrency,statusRates,observationTime),options={readNetOverride:baseCurrency!=='auto',asOf:observedAt};
-    return {...converted,drawdown:realizedDrawdownStats(converted.trades,observedAt,options),overallDrawdown:realizedDrawdownStats(converted.trades,observedAt,{...options,combineMarkets:true}),
+    const converted=performanceCurrencyTrades(settledPerformanceTrades(quoteTrades,observedAt),baseCurrency,statusRates,observationTime),history=performanceCurrencyTrades(cohorts.historyTrades,baseCurrency,statusRates,observationTime),options={readNetOverride:baseCurrency!=='auto',asOf:observedAt};
+    return {...converted,drawdown:realizedDrawdownStats(converted.trades,observedAt,options),overallDrawdown:realizedDrawdownStats(converted.trades,observedAt,{...options,combineMarkets:true}),historyDrawdown:realizedDrawdownStats(history.trades,observedAt,options),historyOverallDrawdown:realizedDrawdownStats(history.trades,observedAt,{...options,combineMarkets:true}),historyOmitted:history.omitted,
       strategies:strategyPerformanceStats(converted.trades,options),overallStrategies:strategyPerformanceStats(converted.trades,{...options,combineMarkets:true}),
       directions:productDirectionStats(converted.trades,options),
       distribution:netPnlDistributionStats(converted.trades,options),overallDistribution:netPnlDistributionStats(converted.trades,{...options,combineMarkets:true}),
       originals:baseCurrency==='auto'?null:{strategies:strategyPerformanceStats(quoteTrades,{asOf:observedAt}),directions:productDirectionStats(quoteTrades,{asOf:observedAt}),distribution:netPnlDistributionStats(quoteTrades,{asOf:observedAt})}};
-  },[quoteTrades,baseCurrency,statusRates,observedAt,observationTime]);
+  },[quoteTrades,cohorts.historyTrades,baseCurrency,statusRates,observedAt,observationTime]);
   const maeMfeSelectionKey=useMemo(()=>cryptoSource+'|'+maeMfeFingerprint(quoteTrades),[quoteTrades,cryptoSource]);
   const currentMaeMfeAnalysis=useMemo(()=>{
     const local=maeMfeAnalysis?.selectionKey===maeMfeSelectionKey?maeMfeAnalysis:{rows:[],skipped:[],attempted:[],resume:{}};
@@ -149,7 +141,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     priorEnd.setUTCDate(priorEnd.getUTCDate() - 1);
     const priorStart = new Date(priorEnd);
     priorStart.setUTCDate(priorStart.getUTCDate() - days + 1);
-    const previous = trades.filter(trade => trade.exitTime.slice(0, 10) >= priorStart.toISOString().slice(0, 10) && trade.exitTime.slice(0, 10) <= priorEnd.toISOString().slice(0, 10));
+    const previous = cohorts.historyDisplayed.filter(trade => trade.exitTime.slice(0, 10) >= priorStart.toISOString().slice(0, 10) && trade.exitTime.slice(0, 10) <= priorEnd.toISOString().slice(0, 10));
     const mistakes = mistakeStats(selected);
     const strategies = strategyStats(selected);
     const enteredStrategies = enteredStrategyStats(selected);
@@ -173,15 +165,15 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     const products: ProductCharts[] = [...productGroups.entries()].map(([key, { market, currency, trades: rows }]) => {
       const previousRows = previousProductGroups.get(key) ?? [];
       const daily = weekdayPnlStats(rows);
-      const durations = rows.filter(trade => Number.isFinite(durationMinutes(trade)));
+      const durations = rows.map(trade=>canonical.get(trade.id)??trade).filter(trade => Number.isFinite(holdingMinutes(trade)));
       const winningDurations = durations.filter(trade => pnl(trade) > 0);
       const losingDurations = durations.filter(trade => pnl(trade) < 0);
       return {
-        market, currency, count: rows.length,
-        averageDuration: averageDurationMinutes(durations),
-        previousAverageDuration: averageDurationMinutes(previousRows.filter(trade => Number.isFinite(durationMinutes(trade)))),
-        averageWinDuration: averageDurationMinutes(winningDurations),
-        averageLossDuration: averageDurationMinutes(losingDurations),
+        market, currency, count: rows.length, durationCount: durations.length, winningDurationCount: winningDurations.length, losingDurationCount: losingDurations.length,
+        averageDuration: averageHoldingMinutes(durations),
+        previousAverageDuration: averageHoldingMinutes(previousRows.map(trade=>canonical.get(trade.id)??trade)),
+        averageWinDuration: averageHoldingMinutes(winningDurations),
+        averageLossDuration: averageHoldingMinutes(losingDurations),
         bestWeekday: daily.length ? [...daily].sort((a, b) => b.net - a.net)[0] : null,
         worstWeekday: daily.length ? [...daily].sort((a, b) => a.net - b.net)[0] : null,
         sharpe: sharpeRatio(rows),
@@ -200,7 +192,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
       const hourly: Trade[][] = Array.from({ length: 24 }, () => []);
       for (const trade of rows) hourly[Number(trade.entryTime.slice(11, 13))]?.push(trade);
       const clock = hourly.map((bucket, hour) => ({ position: hour, label: `${String(hour).padStart(2, '0')}:00`, count: bucket.length, winRate: bucket.length ? winRate(bucket) : null }));
-      const holding = holdingTimeStats(rows);
+      const holding = holdingTimeStats(rows.map(trade=>canonical.get(trade.id)??trade),holdingMinutes);
       return { market, currency, count: rows.length, clock, holding };
     });
     const lossPercent = selected.filter(trade => positionValue(trade) > 0 && pnl(trade) < 0).map(trade => Math.abs(pnl(trade)) / positionValue(trade) * 100);
@@ -231,12 +223,12 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     const wins = selected.filter(trade => pnl(trade) > 0).reduce((sum, trade) => sum + pnl(trade), 0);
     const losses = Math.abs(selected.filter(trade => pnl(trade) < 0).reduce((sum, trade) => sum + pnl(trade), 0));
     const score = Math.max(0, Math.min(100, Math.round(winRate(selected) * .45 + Math.min(40, (wins / (losses || 1)) * 20) + disciplineRate(selected) * .25)));
-    const recovery=lossRecoveryStats(selected);
+    const recovery=lossRecoveryStats(quoteTrades.filter(trade=>Number.isFinite(pnl(trade))),tradeTimestamp);
     const concentrationGroups=new Map<string,{market:Trade['market'];currency:Trade['currency'];rows:Trade[]}>();
     for(const trade of selected){const key=`${trade.market}|${trade.currency}`,group=concentrationGroups.get(key);if(group)group.rows.push(trade);else concentrationGroups.set(key,{market:trade.market,currency:trade.currency,rows:[trade]});}
     const concentration=[...concentrationGroups.values()].map(group=>({market:group.market,currency:group.currency,rows:profitConcentration(group.rows)}));
     return { previous, mistakes, strategies, enteredStrategies, symbols, products, timeProducts, riskScore, score, leverage, bestDays, recovery, concentration };
-  }, [trades, selected, timeSelected, range.start, range.end]);
+  }, [cohorts.historyDisplayed, canonical, quoteTrades, selected, timeSelected, range.start, range.end]);
 
   const durationComparisons = data.products.filter(product => product.averageDuration !== null).map(product => ({
     name: `${t(marketName(product.market))} · ${t('平均進出場時間')}`,
@@ -309,8 +301,8 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
   function applyQuoteKeys(keys:QuoteKeys){setQuoteKeys(keys);retryMaeMfeAnalysis();}
 
   return <div className="status-grid">
-    <Card favoriteId="loss-recovery" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Activity/>} title={t('回撤、恢復與資料摘要')} className="status-full analytics-card status-compact-summary" actions={<InfoTooltip label={t('回撤與資料摘要說明')} contentClassName="factor-help-wide"><strong>{t('回撤與資料摘要說明')}</strong><p>{t('只使用所選期間的已平倉淨損益，由期初零開始累積；回撤是此損益曲線前高至後續低點的差額，不含未平倉浮盈虧、入金或出金。相同平倉時間先合併結算。')}</p><p>{t('恢復從先前損益高點計時；最長恢復只計已完成恢復的回撤。目前未恢復時間計至所選期間結束或現在，取較早者。各市場與幣別分開，整體只合併同幣別或有有效匯率的交易。')}</p><p>{t('完整行情指有效自動估算已涵蓋整段持倉，不代表逐筆成交。手動極值另計；只有 MAE 或 MFE 的交易按各指標獨立計算，空白不是零。')}</p><p>{t('浮盈保留率為每筆實際淨損益 ÷ 最大浮盈，再取有效樣本平均；只納入 MFE 大於零的交易。負值代表最後虧損，費用與粗週期估算可能使結果超出 0～100%，不會強制截斷。')}</p><p>{t('由盈轉虧比例為曾有正 MFE 且最後淨損益為負的筆數，除以有正 MFE 的有效樣本；打平不算虧損。')}</p></InfoTooltip>}>
-      <StatusSummary drawdown={performance.drawdown} overall={performance.overallDrawdown} recovery={data.recovery} rows={maeMfeRows} trades={quoteTrades} observedAt={observedAt} timezone={timezone} pending={maeMfeWaitingCount} blocked={maeMfeQueuePaused} omitted={performance.omitted} t={t}/>
+    <Card favoriteId="loss-recovery" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Activity/>} title={t('回撤、恢復與資料摘要')} className="status-full analytics-card status-compact-summary" actions={<InfoTooltip label={t('回撤與資料摘要說明')} contentClassName="factor-help-wide"><strong>{t('回撤與資料摘要說明')}</strong><p>{t('本期最大回撤只使用所選期間的已平倉淨損益，由期初零開始累積；目前回撤與恢復時間則使用此帳號完整交易歷史，計至所選期間結束或現在，取較早者。相同平倉時間先合併結算，不含未平倉浮盈虧、入金或出金。')}</p><p>{t('恢復從歷史損益高點計時，跨週、月、年不重置；最長恢復只計截止時已完成恢復的回撤。歷史樣本不受期間起點限制，截止後的交易不納入。各市場與幣別分開，整體只合併同幣別或有有效匯率的交易。')}</p><p>{t('完整行情指有效自動估算已涵蓋整段持倉，不代表逐筆成交。手動極值另計；只有 MAE 或 MFE 的交易按各指標獨立計算，空白不是零。')}</p><p>{t('浮盈保留率為每筆實際淨損益 ÷ 最大浮盈，再取有效樣本平均；只納入 MFE 大於零的交易。負值代表最後虧損，費用與粗週期估算可能使結果超出 0～100%，不會強制截斷。')}</p><p>{t('由盈轉虧比例為曾有正 MFE 且最後淨損益為負的筆數，除以有正 MFE 的有效樣本；打平不算虧損。')}</p></InfoTooltip>}>
+      <StatusSummary drawdown={performance.drawdown} overall={performance.overallDrawdown} historyDrawdown={performance.historyDrawdown} historyOverall={performance.historyOverallDrawdown} historyRecovery={historyRecovery} historyStreaks={historyStreaks} historyOmitted={performance.historyOmitted} recovery={data.recovery} rows={maeMfeRows} trades={quoteTrades} observedAt={observedAt} timezone={timezone} pending={maeMfeWaitingCount} blocked={maeMfeQueuePaused} omitted={performance.omitted} t={t}/>
     </Card>
     {(!favoritesOnly || favoriteIds.includes('score')) && <section id={tradeStatusFavoriteDomId('score')} className="panel status-card status-hero"><StatusHeader id="score" title={t('交易分數')} icon={null} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}/><div className="status-score-value"><strong>{data.score}</strong><small>/ 100</small></div><div className="score-gauge" style={{ '--score': `${data.score * 3.6}deg` } as React.CSSProperties}><i style={{ transform: `rotate(${data.score * 1.8 - 90}deg)` }}/></div><p>{t('依勝率、盈虧效率與紀律紀錄計算；只反映已保存資料。')}</p></section>}
 
@@ -325,7 +317,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
 
     <Card favoriteId="symbols" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<TrendingUp/>} title={t('最常交易商品')}>{data.symbols.map(([symbol, count]) => <Row key={symbol} name={symbol} value={`${count} ${t('筆')}`}/>)}</Card>
     <Card favoriteId="mistakes" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Activity/>} title={t('常犯錯誤')}>{data.mistakes.length ? data.mistakes.slice(0, 6).map(item => <Progress key={item.name} name={t(item.name)} value={item.percent} suffix={`${item.percent.toFixed(0)}% · ${item.count} ${t('次')}`}/>) : <Empty text={t('尚未在心得中辨識到常見錯誤。')}/>}</Card>
-    <Card favoriteId="time-preference" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Clock3/>} title={t('交易時間偏好')}><p>{t(timezoneName(timezone))} · {utcOffsetLabel(timezone)} · 24 {t('時制')} · {t('按進場日期歸屬期間')}</p>{data.timeProducts.map(product => <div className="preference-product" key={`${product.market}-${product.currency}`}><h3>{t(marketName(product.market))} · {product.currency}</h3>{product.clock.filter(item => item.count).sort((a, b) => b.count - a.count).slice(0, 3).map(item => <Row key={item.position} name={item.label} value={`${item.count} ${t('筆')}`}/>)}</div>)}</Card>
+    <Card favoriteId="time-preference" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Clock3/>} title={t('交易時間偏好')}><p>{t(timezoneName(timezone))} · {utcOffsetLabel(timezone)} · 24 {t('時制')} · {t('按進場日期歸屬期間')} · {t('本期進場且已平倉 · 有效樣本 {0} 筆',[timeSelected.length])}</p>{data.timeProducts.map(product => <div className="preference-product" key={`${product.market}-${product.currency}`}><h3>{t(marketName(product.market))} · {product.currency}</h3>{product.clock.filter(item => item.count).sort((a, b) => b.count - a.count).slice(0, 3).map(item => <Row key={item.position} name={item.label} value={`${item.count} ${t('筆')}`}/>)}</div>)}</Card>
     {hasEnteredStrategies(data.enteredStrategies)&&<Card favoriteId="strategies" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<Target/>} title={t('交易策略偏好')} className="status-full analytics-card"><StrategyPreferenceChart stats={data.enteredStrategies}/></Card>}
     <Card favoriteId="best-day" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('最好的一天佔本期獲利日總額')} hidden={!data.bestDays.length&&!favoriteIds.includes('best-day')} className="best-day-card">{data.bestDays.length ? data.bestDays.map(day => <div className="best-day-row" key={`${day.currency}-${day.date}`}><div className="best-day-top"><span>{day.date} · {day.currency}</span><strong className={day.net < 0 ? 'loss-value' : 'profit-value'}>{fmt(day.net)} {day.currency}<ConvertedMoney amount={day.net} currency={day.currency} baseCurrency={baseCurrency}/></strong></div><p className="best-day-share"><span>{t('佔本期獲利日淨損益')}</span><strong>{day.share === null ? '—' : `${day.share.toFixed(1)}%`}</strong></p><div className="best-day-symbols">{day.trades.map(trade => trade.symbol).filter((symbol, index, all) => all.indexOf(symbol) === index).map(symbol => <span key={symbol}>{symbol}</span>)}</div></div>) : <Empty text={t('所選期間尚無交易。')}/>}</Card>
 
@@ -344,19 +336,19 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
     </Card>
     <Card favoriteId="profit-concentration" favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} favoritesOnly={favoritesOnly} t={t} icon={<BarChart3/>} title={t('損益變化與獲利集中度')} className="status-full analytics-card" actions={<InfoTooltip label={t('損益圖表統計說明')} contentClassName="factor-help-wide"><strong>{t('損益圖表統計說明')}</strong><p>{t('交易依單筆淨損益由高到低排序；獲利與虧損各自累加，獲利柱在零線上方，虧損柱以負值放在零線下方。兩組累積總額相加才是本期淨損益。獲利與虧損占比各用其總額計算，平滑曲線不超過 100%；此圖不是按時間排列的資金曲線。')}</p></InfoTooltip>}>{concentrationGroups.length?<ProfitConcentrationCharts groups={concentrationGroups} t={t} baseCurrency={baseCurrency} rates={statusRates} now={observationTime}/>:<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('交易依單筆淨損益由高到低排序；獲利與虧損各自累加，獲利柱在零線上方，虧損柱以負值放在零線下方。兩組累積總額相加才是本期淨損益。獲利與虧損占比各用其總額計算，平滑曲線不超過 100%；此圖不是按時間排列的資金曲線。')}</p></Card>
 
-    {(!favoritesOnly || favoriteIds.includes('market-metrics') || favoriteIds.some(id => id.startsWith('market-stat:'))) && <section id={tradeStatusFavoriteDomId('market-metrics')} className="panel status-card status-full market-metrics-section"><StatusHeader id="market-metrics" title={t('各市場交易統計')} icon={<BarChart3/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}/><div className="market-metrics-grid">{data.products.map(product => { const id = `market-stat:${product.market}:${product.currency}`; if (favoritesOnly && !favoriteIds.includes('market-metrics') && !favoriteIds.includes(id)) return null; return <section id={tradeStatusFavoriteDomId(id)} className="market-metrics-card" key={id}><header><div className="market-metric-heading"><FavoriteStar active={favoriteIds.includes(id)} title={tradeStatusFavoriteTitle(id,t)} onToggle={()=>onToggleFavorite(id)}/><h3>{t(marketName(product.market))} · {product.currency}</h3></div><span>{product.count} {t('筆')}</span></header><div className="market-metric-grid">
-      <Metric label={t('平均交易時間')} value={durationText(product.averageDuration,t)}/>
+    {(!favoritesOnly || favoriteIds.includes('market-metrics') || favoriteIds.some(id => id.startsWith('market-stat:'))) && <section id={tradeStatusFavoriteDomId('market-metrics')} className="panel status-card status-full market-metrics-section"><StatusHeader id="market-metrics" title={t('各市場交易統計')} icon={<BarChart3/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}><InfoTooltip label={t('統計方式說明')} contentClassName="factor-help-wide"><p>{t('已實現損益按設定時區的出場日期歸屬期間，整筆計入出場週、月或年，不按持倉天數拆分。週期為週一至週日；月份、季度與年份按日曆邊界。')}</p><p>{t('依設定時區的進場日期歸屬期間；持倉時間使用原始進出場時刻的完整時間差，跨週、月、年不截斷，切換時區不改變經過時間。平均持倉摘要使用本期平倉交易，因此樣本可能不同。')}</p></InfoTooltip></StatusHeader><div className="market-metrics-grid">{data.products.map(product => { const id = `market-stat:${product.market}:${product.currency}`; if (favoritesOnly && !favoriteIds.includes('market-metrics') && !favoriteIds.includes(id)) return null; return <section id={tradeStatusFavoriteDomId(id)} className="market-metrics-card" key={id}><header><div className="market-metric-heading"><FavoriteStar active={favoriteIds.includes(id)} title={tradeStatusFavoriteTitle(id,t)} onToggle={()=>onToggleFavorite(id)}/><h3>{t(marketName(product.market))} · {product.currency}</h3></div><span>{product.count} {t('筆')}</span></header><div className="market-metric-grid">
+      <Metric label={t('平均交易時間')} value={durationText(product.averageDuration,t)} detail={t('本期平倉 · 有效樣本 {0} 筆',[product.durationCount])}/>
       <Metric label={t('夏普比率')} value={product.sharpe===null?'—':product.sharpe.toFixed(2)}/>
       <Metric label={t('期望值')} value={`${fmt(product.expectancy)} ${product.currency}`} detail={`${t('平均報酬率')} ${percentChangeText(product.expectancyPercent)}`} tone={product.expectancy>0?'profit':product.expectancy<0?'loss':undefined} detailTone={product.expectancyPercent===null?undefined:product.expectancyPercent>0?'profit':product.expectancyPercent<0?'loss':undefined}/>
       <Metric label={t('最賺錢的天')} value={product.bestWeekday?`${t(weekdays[product.bestWeekday.weekday])} · ${fmt(product.bestWeekday.net)} ${product.currency}`:'—'} tone={product.bestWeekday&&product.bestWeekday.net!==0?product.bestWeekday.net>0?'profit':'loss':undefined}/>
       <Metric label={t('最賠錢的天')} value={product.worstWeekday?`${t(weekdays[product.worstWeekday.weekday])} · ${fmt(product.worstWeekday.net)} ${product.currency}`:'—'} tone={product.worstWeekday&&product.worstWeekday.net!==0?product.worstWeekday.net>0?'profit':'loss':undefined}/>
-      <Metric label={t('平均盈利時間')} value={durationText(product.averageWinDuration,t)}/>
-      <Metric label={t('平均虧損時間')} value={durationText(product.averageLossDuration,t)}/>
+      <Metric label={t('平均盈利時間')} value={durationText(product.averageWinDuration,t)} detail={t('本期平倉 · 有效樣本 {0} 筆',[product.winningDurationCount])}/>
+      <Metric label={t('平均虧損時間')} value={durationText(product.averageLossDuration,t)} detail={t('本期平倉 · 有效樣本 {0} 筆',[product.losingDurationCount])}/>
     </div></section>;})}</div>{!data.products.length&&<Empty text={t('所選期間尚無交易。')}/>}<p className="market-metrics-note">{t('夏普比率以逐筆淨損益計算，未年化；期望值金額為每筆平均淨損益，百分比為平均逐筆報酬率。')}</p></section>}
 
     {(!favoritesOnly || favoriteIds.includes('summary')) && <section id={tradeStatusFavoriteDomId('summary')} className="panel status-card status-full"><StatusHeader id="summary" title={t('交易報導')} icon={<Activity/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}><button className="primary-button" aria-busy={summaryBusy} disabled={!signedIn || demo || summaryBusy} onClick={() => void generate()}><RefreshCw size={15} className={summaryBusy ? 'animate-spin' : ''}/>{summaryBusy ? t('生成中…') : t('生成 AI 總結')}</button></StatusHeader>{summary ? <div className="ai-summary"><h3>{t('期間總結')}</h3><p>{summary.overview}</p><div className="summary-columns"><div><h3>{t('策略總結')}</h3><p>{summary.strategySummary || t('本期間沒有足夠的策略心得。')}</p></div><div><h3>{t('心得總結')}</h3><p>{summary.reflectionSummary || t('本期間沒有足夠的心得內容。')}</p></div></div>{summarySections.map(([title, items]) => <div key={title}><h3>{title}</h3><ul>{items.map((item, index) => <li key={index}>{item}</li>)}</ul></div>)}</div> : <p className="status-empty">{signedIn && !demo ? t('按右上方按鈕，AI 將依所選期間的交易、策略與心得生成交易報導。') : t('登入並選擇我的紀錄後即可生成個人 AI 交易報導。')}</p>}{summaryError && <p className="status-error">{summaryError}</p>}</section>}
 
-    {(!favoritesOnly || favoriteIds.includes('best-worst-time') || favoriteIds.some(id => id.startsWith('time-chart:'))) && <section id={tradeStatusFavoriteDomId('best-worst-time')} className="panel status-card status-full"><StatusHeader id="best-worst-time" title={t('最佳與最低勝率時間')} icon={<Clock3/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}><div className="time-chart-actions"><div className="status-switch" role="group" aria-label={t('切換統計方式')}><button type="button" aria-pressed={timeMode === 'clock'} className={timeMode === 'clock' ? 'active' : ''} onClick={() => setTimeMode('clock')}>{t('交易時段')}</button><button type="button" aria-pressed={timeMode === 'holding'} className={timeMode === 'holding' ? 'active' : ''} onClick={() => setTimeMode('holding')}>{t('持倉時間')}</button></div><InfoTooltip label={t('統計方式說明')} contentClassName="factor-help-wide"><strong>{t('統計方式說明')}</strong><section><strong>{t('交易時段')}</strong><p>{t('依進場日期判斷是否在所選期間內，再按進場時間的小時分組。')}</p></section><section><strong>{t('持倉時間')}</strong><p>{t('依進場日期判斷是否在所選期間內；持倉時間以出場時間減進場時間計算，未滿一小時按分鐘分組。')}</p></section><p className="factor-help-note">{t('每組勝率等於獲利交易筆數除以該組交易總筆數；打平交易計入總筆數，但不計為獲利。最高與最低勝率只比較有交易的分組，並按市場及幣別分開統計。')}</p></InfoTooltip></div></StatusHeader><p>{timeMode === 'clock' ? `${t(timezoneName(timezone))} · ${utcOffsetLabel(timezone)}` : `${t('滑鼠移至圖表可查看時間與勝率。')} ${t('不足一小時以分鐘顯示。')}`} · {t('交易時段依進場時間分組；持倉時間為出場時間減進場時間。')}</p><div className="time-chart-grid">{data.timeProducts.filter(product => !favoritesOnly || favoriteIds.includes('best-worst-time') || favoriteIds.includes(`time-chart:${product.market}:${product.currency}`)).map(product => {
+    {(!favoritesOnly || favoriteIds.includes('best-worst-time') || favoriteIds.some(id => id.startsWith('time-chart:'))) && <section id={tradeStatusFavoriteDomId('best-worst-time')} className="panel status-card status-full"><StatusHeader id="best-worst-time" title={t('最佳與最低勝率時間')} icon={<Clock3/>} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} t={t}><div className="time-chart-actions"><div className="status-switch" role="group" aria-label={t('切換統計方式')}><button type="button" aria-pressed={timeMode === 'clock'} className={timeMode === 'clock' ? 'active' : ''} onClick={() => setTimeMode('clock')}>{t('交易時段')}</button><button type="button" aria-pressed={timeMode === 'holding'} className={timeMode === 'holding' ? 'active' : ''} onClick={() => setTimeMode('holding')}>{t('持倉時間')}</button></div><InfoTooltip label={t('統計方式說明')} contentClassName="factor-help-wide"><strong>{t('統計方式說明')}</strong><p>{t('已實現損益按設定時區的出場日期歸屬期間，整筆計入出場週、月或年，不按持倉天數拆分。週期為週一至週日；月份、季度與年份按日曆邊界。')}</p><section><strong>{t('交易時段')}</strong><p>{t('先依設定時區判斷進場日期是否在所選期間內，再按進場時間的小時分組；只納入截至目前已平倉且時間有效的交易，跨期平倉仍歸入進場期間。')}</p></section><section><strong>{t('持倉時間')}</strong><p>{t('依設定時區的進場日期歸屬期間；持倉時間使用原始進出場時刻的完整時間差，跨週、月、年不截斷，切換時區不改變經過時間。平均持倉摘要使用本期平倉交易，因此樣本可能不同。')}</p></section><p className="factor-help-note">{t('每組勝率等於獲利交易筆數除以該組交易總筆數；打平交易計入總筆數，但不計為獲利。最高與最低勝率只比較有交易的分組，並按市場及幣別分開統計。')}</p></InfoTooltip></div></StatusHeader><p>{timeMode === 'clock' ? `${t(timezoneName(timezone))} · ${utcOffsetLabel(timezone)}` : `${t('滑鼠移至圖表可查看時間與勝率。')} ${t('不足一小時以分鐘顯示。')}`} · {t('本期進場且已平倉 · 有效樣本 {0} 筆',[timeSelected.length])}</p><div className="time-chart-grid">{data.timeProducts.filter(product => !favoritesOnly || favoriteIds.includes('best-worst-time') || favoriteIds.includes(`time-chart:${product.market}:${product.currency}`)).map(product => {
       const buckets = timeMode === 'clock' ? product.clock : product.holding;
       const activeBuckets = buckets.filter(item => item.count > 0 && item.winRate !== null);
       const best = [...activeBuckets].sort((a, b) => (b.winRate || 0) - (a.winRate || 0))[0];
@@ -385,9 +377,13 @@ function chartCurrency(source:string,target:string,rates:StatusExchangeRates|nul
 function PerformanceCurrencyNote({omitted,currency,t}:{omitted:number;currency:string|null;t:(text:string,values?:unknown[])=>string}){
  return <div className="performance-currency-note"><p className="market-metrics-note">{currency?t('依有效匯率逐筆換算為 {0} 後統計；原幣別數據可展開查看。',[currency]):t('原幣別分組顯示；整體也按幣別分開，不混加不同幣別。')}</p>{omitted>0&&<p className="market-metrics-note">{t('有 {0} 筆交易缺少有效匯率或損益，未納入換算統計。',[omitted])}</p>}</div>;
 }
-function StatusSummary({drawdown,overall,recovery,rows,trades,observedAt,timezone,pending,blocked,omitted,t}:{drawdown:RealizedDrawdownStat[];overall:RealizedDrawdownStat[];recovery:RecoveryItem[];rows:MaeMfeRow[];trades:Trade[];observedAt:number;timezone:string;pending:number;blocked:boolean;omitted:number;t:(text:string,values?:unknown[])=>string}){
+function StatusSummary({drawdown,overall,historyDrawdown,historyOverall,historyRecovery,historyStreaks,historyOmitted,recovery,rows,trades,observedAt,timezone,pending,blocked,omitted,t}:{drawdown:RealizedDrawdownStat[];overall:RealizedDrawdownStat[];historyDrawdown:RealizedDrawdownStat[];historyOverall:RealizedDrawdownStat[];historyRecovery:RecoveryItem[];historyStreaks:ReturnType<typeof currentLossStreaks>;historyOmitted:number;recovery:RecoveryItem[];rows:MaeMfeRow[];trades:Trade[];observedAt:number;timezone:string;pending:number;blocked:boolean;omitted:number;t:(text:string,values?:unknown[])=>string}){
  const [scope,setScope]=useState<'overall'|'markets'>('overall');
- const visible=scope==='overall'?overall:drawdown,byId=new Map(trades.map(trade=>[trade.id,trade]));
+ const periodRows=scope==='overall'?overall:drawdown,historyRows=scope==='overall'?historyOverall:historyDrawdown;
+ const keyOf=(row:{market:string;currency:string})=>row.market+'|'+row.currency;
+ const periodByKey=new Map(periodRows.map(row=>[keyOf(row),row])),historyByKey=new Map(historyRows.map(row=>[keyOf(row),row]));
+ const visible=[...new Set([...periodByKey.keys(),...historyByKey.keys()])].map(key=>({period:periodByKey.get(key),history:historyByKey.get(key)}));
+ const byId=new Map(trades.map(trade=>[trade.id,trade]));
  const samples=rows.flatMap(row=>{const trade=byId.get(row.id);return trade?[{trade,mae:row.mae,mfe:row.mfe}]:[];});
  const ratios=scope==='overall'?[{label:t('整體'),rows:samples}]:[...new Set(rows.map(row=>row.market))].map(market=>({label:t(marketName(market)),rows:samples.filter(item=>item.trade.market===market)}));
  const stamp=(instant:number)=>new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(instant));
@@ -395,10 +391,29 @@ function StatusSummary({drawdown,overall,recovery,rows,trades,observedAt,timezon
  const maeCount=rows.filter(row=>row.mae!==null).length,mfeCount=rows.filter(row=>row.mfe!==null).length;
  const partial=rows.filter(row=>(row.mae===null)!==(row.mfe===null)).length,missing=rows.filter(row=>row.mae===null&&row.mfe===null).length;
  return <><div className="status-summary-toolbar"><div className="status-switch" role="group" aria-label={t('統計範圍')}><button type="button" className={scope==='overall'?'active':''} aria-pressed={scope==='overall'} onClick={()=>setScope('overall')}>{t('整體')}</button><button type="button" className={scope==='markets'?'active':''} aria-pressed={scope==='markets'} onClick={()=>setScope('markets')}>{t('分市場')}</button></div><small>{t('觀察截止')} · {stamp(observedAt)}</small></div>
- <div className="status-summary-grid">{visible.map(row=><section className="status-summary-group" key={`${row.market}|${row.currency}`}><header><strong>{row.market==='all'?t('整體'):t(marketName(row.market))} · {row.currency}</strong><span>{t('有效樣本 {0} 筆',[row.count])}</span></header><div className="status-summary-metrics"><Metric label={t('最大回撤金額')} value={fmt(-row.maxDrawdown)+' '+row.currency} tone={row.maxDrawdown>0?'loss':undefined}/><Metric label={t('目前回撤金額')} value={fmt(-row.currentDrawdown)+' '+row.currency} tone={row.currentDrawdown>0?'loss':undefined}/><Metric label={t('最長恢復所需時間')} value={durationText(row.maxRecoveryMinutes,t)} detail={t('只計已恢復的回撤')}/><Metric label={t('目前尚未恢復所經時間')} value={durationText(row.currentRecoveryMinutes,t)} detail={row.currentRecoveryStart===null?t('目前沒有未恢復回撤'):t('起始日期 {0}',[stamp(row.currentRecoveryStart)])}/></div></section>)}{!visible.length&&<Empty text={t('所選期間尚無交易。')}/>}</div>
+ <p className="market-metrics-note">{t('本期最大回撤按所選期間；目前回撤與恢復狀況追溯完整歷史，計至觀察截止。')}</p>
+ <div className="status-summary-grid">{visible.map(({period,history})=>{
+  const row=history??period!;
+  return <section className="status-summary-group" key={keyOf(row)}><header><strong>{row.market==='all'?t('整體'):t(marketName(row.market))} · {row.currency}</strong><span>{t('本期平倉 {0} 筆 · 歷史平倉 {1} 筆',[period?.count??0,history?.count??0])}</span></header><div className="status-summary-metrics">
+    <Metric label={t('本期最大回撤金額')} value={period?fmt(-period.maxDrawdown)+' '+row.currency:'—'} detail={t('所選期間，期初為零')} tone={period&&period.maxDrawdown>0?'loss':undefined}/>
+    <Metric label={t('目前回撤金額')} value={history?fmt(-history.currentDrawdown)+' '+row.currency:'—'} detail={t('相對歷史損益高點')} tone={history&&history.currentDrawdown>0?'loss':undefined}/>
+    <Metric label={t('最長恢復所需時間')} value={durationText(history?.maxRecoveryMinutes??null,t)} detail={t('完整歷史，只計已恢復')}/>
+    <Metric label={t('目前尚未恢復所經時間')} value={durationText(history?.currentRecoveryMinutes??null,t)} detail={!history?t('沒有有效歷史樣本'):history.currentRecoveryStart===null?t('目前沒有未恢復回撤'):t('起始日期 {0}',[stamp(history.currentRecoveryStart)])}/>
+  </div></section>;
+ })}{!visible.length&&<Empty text={t('截至觀察截止尚無已平倉交易。')}/>}</div>
+ {historyOmitted>0&&<p className="market-metrics-note">{t('歷史回撤有 {0} 筆缺少有效匯率或損益，未納入；僅代表有效樣本。',[historyOmitted])}</p>}
  {omitted>0&&<p className="market-metrics-note">{t('有 {0} 筆交易缺少有效匯率或損益，未納入換算統計。',[omitted])}</p>}
  <div className="status-summary-grid excursion-summary-grid">{ratios.map(group=>{const result=excursionPerformance(group.rows);return <section className="status-summary-group" key={group.label}><header><strong>{group.label} · {t('浮盈保留')}</strong><span>{t('有效樣本 {0} 筆',[result.retentionSamples])}</span></header><div className="status-summary-metrics"><Metric label={t('平均浮盈保留率')} value={percentChangeText(result.profitRetention)} detail={t('保留率樣本 {0} · 未有正 MFE {1} 筆',[result.retentionSamples,group.rows.length-result.retentionSamples])}/><Metric label={t('曾有浮盈、最後虧損比例')} value={result.turnedLossRate===null?'—':result.turnedLossRate.toFixed(1)+'%'} detail={t('{0}／{1} 筆有效樣本',[result.turnedLossCount,result.positiveExcursionSamples])}/></div></section>;})}<section className="status-summary-group"><header><strong>{t('行情與資料完整度')}</strong><span>{rows.length} {t('筆')}</span></header><div className="status-summary-metrics"><Metric label={t('完整行情／總筆數')} value={`${history} / ${rows.length}`} detail={t('只計涵蓋持倉的有效自動估算')}/><Metric label={t('MAE／MFE 有效樣本')} value={`${maeCount} / ${mfeCount}`} detail={t('單側資料 {0} 筆 · 兩側缺漏 {1} 筆',[partial,missing])}/><Metric label={t('待查交易')} value={`${pending} ${t('筆')}`} detail={blocked?t('已暫停'):t('已保存結果直接顯示')}/><Metric label={t('手動極值交易')} value={`${rows.filter(row=>row.manualMae||row.manualMfe).length} ${t('筆')}`} detail={t('手動資料不當成完整行情')}/></div></section></div>
- <details className="status-summary-details"><summary>{t('連敗與部位變化明細')}</summary><div className="status-summary-grid">{recovery.map(row=>{const increase=row.postStreakSamples?row.postStreakIncreases/row.postStreakSamples*100:null;return <section className="status-summary-group" key={`${row.market}|${row.currency}`}><header><strong>{t(marketName(row.market))} · {row.currency}</strong><span>{row.count} {t('筆')}</span></header><div className="status-summary-metrics"><Metric label={t('最長連敗')} value={`${row.maxLosingStreak} ${t('筆')}`}/><Metric label={t('連敗後加大部位')} value={increase===null?'—':`${row.postStreakIncreases}/${row.postStreakSamples} · ${increase.toFixed(1)}%`} detail={t('比較同商品、連敗後的下一筆交易')}/></div></section>;})}</div></details><p className="market-metrics-note">{t('回撤只依所選期間已平倉淨損益計算，期初為零；初次虧損的恢復起點沿用首筆進場時間。不含開倉浮盈虧與入出金，空值表示沒有有效樣本或未曾完成恢復。')}</p></>;
+ <details className="status-summary-details"><summary>{t('連敗與部位變化明細')}</summary><div className="status-summary-grid">{historyRecovery.map(history=>{
+  const period=recovery.find(row=>keyOf(row)===keyOf(history)),streak=historyStreaks.find(row=>keyOf(row)===keyOf(history));
+  const increase=period?.postStreakSamples?period.postStreakIncreases/period.postStreakSamples*100:null;
+  return <section className="status-summary-group" key={keyOf(history)}><header><strong>{t(marketName(history.market))} · {history.currency}</strong><span>{t('本期平倉 {0} 筆 · 歷史平倉 {1} 筆',[period?.count??0,history.count])}</span></header><div className="status-summary-metrics">
+    <Metric label={t('本期最長連敗')} value={period?period.maxLosingStreak+' '+t('筆'):'—'}/>
+    <Metric label={t('歷史最長連敗')} value={history.maxLosingStreak+' '+t('筆')}/>
+    <Metric label={t('目前延續連敗')} value={streak?streak.streak+' '+t('筆'):'—'} detail={t('計至觀察截止，跨期不重置')}/>
+    <Metric label={t('連敗後加大部位')} value={increase===null?'—':period!.postStreakIncreases+'/'+period!.postStreakSamples+' · '+increase.toFixed(1)+'%'} detail={t('本期同商品、連敗後的下一筆交易')}/>
+  </div></section>;
+ })}</div></details><p className="market-metrics-note">{t('本期損益按設定時區的出場日期統計；進場時段與持倉勝率圖按進場日期。歷史回撤與連敗僅使用截止前已平倉交易，不含未平倉部位或入出金；沒有有效樣本顯示空值。')}</p></>;
 }
 
 function MaeMfeAverages({rows,t,baseCurrency,rates,now}:{rows:MaeMfeRow[];t:(text:string,values?:unknown[])=>string;baseCurrency:string;rates:StatusExchangeRates|null;now:number}){

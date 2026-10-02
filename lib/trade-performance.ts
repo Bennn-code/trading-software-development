@@ -1,4 +1,4 @@
-import { convertWallTime } from './display-currency';
+import { convertWallTime, parseExplicitTimestamp } from './display-currency';
 import { normalizeStrategyName } from './trade-status';
 import { pnl, type Trade } from './trades';
 
@@ -42,8 +42,8 @@ function performanceGroups(trades: Trade[], options: PerformanceOptions = {}): P
 }
 
 /** Journal wall times use their saved timezone; explicit ISO offsets already identify an instant. */
-function tradeTimestamp(value: string, timezone = 'Asia/Taipei'): number {
-  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) return Date.parse(value);
+export function tradeTimestamp(value: string, timezone = 'Asia/Taipei'): number {
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) return parseExplicitTimestamp(value);
   const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
   if (!match) return NaN;
   const minute = match[1];
