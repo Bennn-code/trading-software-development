@@ -9,7 +9,7 @@ const source=fs.readFileSync('lib/trade-status.ts','utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText.replaceAll('"./trades"','"./trades.cjs"').replaceAll('"./display-currency"','"./display-currency.cjs"');
 fs.writeFileSync('work/trade-status.cjs',code);
 const require=createRequire(new URL('../work/',import.meta.url));
-const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,chooseMaeMfeIntervalMinutes,enteredStrategyStats,hasEnteredStrategies,holdingTimeBucket,holdingTimeLabel,inEntryDateRange,lossRecoveryStats,maeMfeCandleInWindow,maeMfeCandleWindow,maeMfeFingerprint,maeMfeIntervalLabel,maeMfeProviderInterval,profitConcentration,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
+const {averageDurationMinutes,averagePnl,averageReturnPercent,bestDayShare,calculateMaeMfe,chooseMaeMfeIntervalMinutes,enteredStrategyStats,hasEnteredStrategies,holdingTimeBucket,holdingTimeLabel,holdingTimeStats,inEntryDateRange,lossRecoveryStats,maeMfeCandleInWindow,maeMfeCandleWindow,maeMfeFingerprint,maeMfeIntervalLabel,maeMfeProviderInterval,profitConcentration,sharpeRatio,weekdayPnlStats}=require('./trade-status.cjs');
 
 assert.equal(averagePnl([{netOverride:10,profitBasis:'net'},{netOverride:-4,profitBasis:'net'}]),3,'average P&L includes wins and losses');
 assert.equal(averagePnl([]),0,'empty periods have no average P&L');
@@ -24,8 +24,61 @@ assert.equal(holdingTimeBucket(119),60);
 assert.equal(holdingTimeBucket(120),120);
 assert.equal(holdingTimeLabel(55),'55–60m');
 assert.equal(holdingTimeLabel(60),'1h');
-assert.equal(holdingTimeBucket(3000),48*60);
+for(const [minutes,expected] of [[48*60,48*60],[48*60+59,48*60],[49*60,49*60],[50*60,50*60],[96*60,96*60]]){
+ assert.equal(holdingTimeBucket(minutes),expected,'hourly buckets extend to the actual holding duration rather than clamping at 48 hours');
+ assert.equal(holdingTimeLabel(expected),`${expected/60}h`);
+}
+for(const invalid of [NaN,Infinity,-Infinity,-1])assert.equal(holdingTimeBucket(invalid),null,'unknown and negative durations do not create a fake time bucket');
 const trade=(exitTime,netOverride,positionValue=1000,entryTime='2026-09-21T09:00')=>({exitTime,entryTime,netOverride,profitBasis:'net',positionValue,market:'us-stocks',entry:100,quantity:10,multiplier:1});
+const longHoldings=[
+ trade('2026-09-23T09:00',10),
+ trade('2026-09-23T09:59',0),
+ trade('2026-09-23T10:00',-5),
+ trade('2026-09-23T11:00',20),
+ trade('2026-09-25T09:00',-7),
+ trade('2026-09-21T09:00',0),
+ trade('',999),
+ trade('invalid',999),
+ trade('2026-09-21T08:59',999),
+ {...trade('2026-09-25T09:00',999),timezone:'Invalid/Zone'},
+ trade('2026-09-25T09:00',999,1000,''),
+ trade('2026-09-31T09:00',999),
+ {...trade('2026-09-25T09:00',999),entryTime:undefined},
+];
+const validHoldingStats=holdingTimeStats(longHoldings);
+assert.deepEqual(validHoldingStats,[
+ {position:0,label:'0–5m',count:1,winRate:0},
+ {position:48*60,label:'48h',count:2,winRate:50},
+ {position:49*60,label:'49h',count:1,winRate:0},
+ {position:50*60,label:'50h',count:1,winRate:100},
+ {position:96*60,label:'96h',count:1,winRate:0},
+],'actual helper retains 49/50/96h separately and uses only valid holdings; zero duration and breakevens remain valid');
+assert.deepEqual(holdingTimeStats(longHoldings.toReversed()),validHoldingStats,'holding-time chart order does not depend on input order');
+assert.deepEqual(holdingTimeStats([]),[]);
+assert.deepEqual(holdingTimeStats(longHoldings.slice(6)),[],'invalid-only inputs cannot produce best/worst buckets');
+assert.equal(validHoldingStats.reduce((sum,row)=>sum+row.count,0),6);
+assert.equal([...validHoldingStats].sort((a,b)=>b.winRate-a.winRate)[0].label,'50h','best/worst comparison uses actual populated hourly buckets');
+const periodHoldings=[...longHoldings.filter(row=>typeof row.entryTime==='string'),trade('2026-09-25T09:00',500,1000,'2026-08-31T09:00')];
+assert.deepEqual(holdingTimeStats(inEntryDateRange(periodHoldings,'2026-09-01','2026-09-30')),validHoldingStats,'holding groups still use entry-period membership rather than exit-period membership');
+const otherMarket={...trade('2026-09-30T09:00',10),market:'crypto',currency:'USDT'};
+const otherCurrency={...trade('2026-09-27T09:00',10),market:'us-stocks',currency:'TWD'};
+const marketHoldingRows=longHoldings.map(row=>({...row,currency:'USD'}));
+const sourceGroups=[...marketHoldingRows,otherMarket,otherCurrency];
+assert.deepEqual(holdingTimeStats(sourceGroups.filter(row=>row.market==='us-stocks'&&row.currency==='USD')),validHoldingStats,'other market/currency longest holdings do not extend this market/currency chart');
+assert.equal(holdingTimeStats([otherMarket]).at(-1).label,'216h');
+assert.equal(holdingTimeStats([otherCurrency]).at(-1).label,'144h');
+const dstHolding=(entryTime,exitTime,net)=>({...trade(exitTime,net,1000,entryTime),timezone:'America/New_York'});
+assert.deepEqual(holdingTimeStats([
+ dstHolding('2026-03-08T02:30','2026-03-08T03:30',500),
+ dstHolding('2026-03-08T01:30','2026-03-08T02:30',500),
+]),[],'nonexistent spring DST entry or exit wall times are rejected rather than converted into fake holding buckets');
+assert.deepEqual(holdingTimeStats([
+ dstHolding('2026-03-08T01:30','2026-03-08T03:30',-4),
+ dstHolding('2026-03-07T09:00','2026-03-09T11:00',10),
+]),[
+ {position:60,label:'1h',count:1,winRate:0},
+ {position:49*60,label:'49h',count:1,winRate:100},
+],'valid holdings across the spring DST jump use actual elapsed time: two wall-clock hours are one hour, and fifty wall-clock hours are forty-nine');
 assert.equal(averageDurationMinutes([trade('2026-09-21T10:00',10),trade('2026-09-21T11:00',-10)]),90);
 assert.equal(averageDurationMinutes([]),null);
 const enteredInRange={...trade('2026-10-01T00:10',10),'entryTime':'2026-09-30T23:50'};

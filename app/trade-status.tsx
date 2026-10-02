@@ -23,7 +23,7 @@ import { Choice } from './trade-fields';
 import { tradeStatusFavoriteDomId, tradeStatusFavoriteTitle } from '@/lib/trade-status-favorites';
 import { utcOffsetLabel, timezoneName } from '@/lib/preferences';
 import type { DateRange, ReportPeriod } from '@/lib/report-period';
-import { averageDurationMinutes, averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, excursionPerformance, enteredStrategyStats, hasEnteredStrategies, holdingTimeBucket, holdingTimeLabel, inEntryDateRange, lossRecoveryStats, maeMfeFingerprint, mistakeStats, profitConcentration, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
+import { averageDurationMinutes, averagePnl, averageReturnPercent, bestDayShare, disciplineRate, durationMinutes, excursionPerformance, enteredStrategyStats, hasEnteredStrategies, holdingTimeStats, inEntryDateRange, lossRecoveryStats, maeMfeFingerprint, mistakeStats, profitConcentration, sharpeRatio, strategyStats, weekdayPnlStats, winRate } from '@/lib/trade-status';
 
 type Community = { mistakes: { name: string; count: number; percent: number }[]; profit: { label: string; value: number; currency: string }[]; returns: { label: string; value: number }[]; sampleSize: number };
 type Summary = { overview: string; strategySummary: string; reflectionSummary: string; strengths: string[]; improvements: string[]; nextSteps: string[] };
@@ -200,14 +200,7 @@ export default function TradeStatus({ trades, timezone, period, anchor, range, d
       const hourly: Trade[][] = Array.from({ length: 24 }, () => []);
       for (const trade of rows) hourly[Number(trade.entryTime.slice(11, 13))]?.push(trade);
       const clock = hourly.map((bucket, hour) => ({ position: hour, label: `${String(hour).padStart(2, '0')}:00`, count: bucket.length, winRate: bucket.length ? winRate(bucket) : null }));
-      const holdingMap = new Map<number, Trade[]>();
-      for (const trade of rows) {
-        const position = holdingTimeBucket(durationMinutes(trade));
-        const bucket = holdingMap.get(position);
-        if (bucket) bucket.push(trade);
-        else holdingMap.set(position, [trade]);
-      }
-      const holding = [...holdingMap].sort((a, b) => a[0] - b[0]).map(([position, bucket]) => ({ position, label: holdingTimeLabel(position), count: bucket.length, winRate: winRate(bucket) }));
+      const holding = holdingTimeStats(rows);
       return { market, currency, count: rows.length, clock, holding };
     });
     const lossPercent = selected.filter(trade => positionValue(trade) > 0 && pnl(trade) < 0).map(trade => Math.abs(pnl(trade)) / positionValue(trade) * 100);

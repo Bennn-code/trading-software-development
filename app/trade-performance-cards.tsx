@@ -6,6 +6,7 @@ import { marketName, type Trade } from '@/lib/trades';
 import type { EnteredStrategyStats } from '@/lib/trade-status';
 import type { NetPnlDistributionStat, ProductDirectionStat, StrategyPerformanceGroup } from '@/lib/trade-performance';
 import { productDirectionSummaryStats } from '@/lib/trade-performance';
+import { histogramBarGeometry, histogramHover } from '@/lib/histogram-hover';
 import { useI18n } from './language-provider';
 import { Choice } from './trade-fields';
 import { PlotCrosshair, type PlotCursor } from './plot-crosshair';
@@ -187,10 +188,8 @@ export function ProductDirectionCharts({ groups, overall, originalGroups }: Grou
 function HistogramBar({ y = 0, height = 0, payload, domain }: { x?: number; y?: number; width?: number; height?: number; payload?: DistributionBin; domain: [number, number] }) {
   const area = usePlotArea();
   if (!area || !payload || payload.count === 0 || !Number.isFinite(y) || !Number.isFinite(height)) return null;
-  const left = area.x + (payload.min - domain[0]) / (domain[1] - domain[0]) * area.width;
-  const right = area.x + (payload.max - domain[0]) / (domain[1] - domain[0]) * area.width;
-  const width = payload.sign === 'flat' ? 6 : Math.max(1, right - left - 2);
-  return <rect className="performance-histogram-bar" x={payload.sign === 'flat' ? left - 3 : left + 1} y={y} width={width} height={height} fill={payload.sign === 'profit' ? 'var(--profit-color)' : payload.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} rx={2} />;
+  const { x, width } = histogramBarGeometry(payload, domain, area);
+  return <rect className="performance-histogram-bar" x={x} y={y} width={width} height={height} fill={payload.sign === 'profit' ? 'var(--profit-color)' : payload.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} rx={2} />;
 }
 
 function binRange(bin: DistributionBin, currency: string, t: Translate) {
@@ -207,32 +206,43 @@ function binRange(bin: DistributionBin, currency: string, t: Translate) {
 const binOutcome = (bin: DistributionBin, t: Translate) => t(bin.sign === 'loss' ? '虧損交易' : bin.sign === 'profit' ? '獲利交易' : '打平交易');
 const binShare = (bin: DistributionBin, count: number) => `${number(count > 0 ? bin.count / count * 100 : 0)}%`;
 
+function HistogramInteraction({ group, domain, cursor }: { group: NetPnlDistributionStat; domain: [number, number]; cursor: PlotCursor }) {
+  const { t } = useI18n();
+  const area = usePlotArea();
+  const selected = histogramHover(group.bins, domain, area, cursor);
+  const bin = selected?.bin;
+  const tooltipWidth = area ? Math.min(260, area.width) : 260;
+  const position = selected && area && cursor ? {
+    x: Math.max(area.x, Math.min(selected.center + 10, area.x + area.width - tooltipWidth)),
+    y: Math.max(area.y + 8, Math.min(cursor.y + 10, area.y + area.height - 150)),
+  } : undefined;
+  return <>
+    <Tooltip active={!!selected} defaultIndex={selected?.index} position={position} wrapperStyle={{ width: tooltipWidth, pointerEvents: 'none' }} cursor={false} shared={false} isAnimationActive={false} animationDuration={0} content={({ active }) => {
+      return active && bin ? <div className="status-tooltip performance-histogram-tooltip"><strong>{binOutcome(bin, t)}</strong><span>{t('單筆淨損益區間')}</span><b className={bin.sign === 'flat' ? '' : bin.sign === 'profit' ? 'profit-value' : 'loss-value'}>{binRange(bin, group.currency, t)}</b><span>{t('這個金額區間有 {0} 筆交易', [bin.count])}</span><small>{t('占本組 {0} 筆交易的 {1}', [group.count, binShare(bin, group.count)])}</small></div> : null;
+    }} />
+    <PlotCrosshair cursor={selected && cursor ? { x: selected.center, y: cursor.y } : cursor} />
+  </>;
+}
+
 function NetPnlHistogram({ group }: { group: NetPnlDistributionStat }) {
   const { t } = useI18n();
   const [cursor, setCursor] = useState<PlotCursor>(null);
-  const [barHovered, setBarHovered] = useState(false);
   const domain = signedDomain(group.bins.flatMap(bin => [bin.min, bin.max]));
   const bins = group.bins.map(bin => ({ ...bin, midpoint: (bin.min + bin.max) / 2 }));
   return <div className="status-chart performance-histogram" role="img" aria-label={t('單筆淨損益分布（{0}）', [groupLabel(group.market, t)])}
     onPointerMove={event => {
       const box = event.currentTarget.getBoundingClientRect();
       setCursor({ x: event.clientX - box.left, y: event.clientY - box.top });
-      setBarHovered(event.target instanceof Element && !!event.target.closest('.performance-histogram-bar'));
     }}
-    onPointerLeave={() => { setCursor(null); setBarHovered(false); }}
-    onFocusCapture={() => setBarHovered(true)} onBlurCapture={() => setBarHovered(false)}>
+    onPointerLeave={() => setCursor(null)}>
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={bins} margin={{ top: 10, right: 12, bottom: 4, left: 0 }} accessibilityLayer={false}>
         <CartesianGrid vertical={false} />
         <XAxis type="number" dataKey="midpoint" domain={domain} ticks={[domain[0], domain[0] / 2, 0, domain[1] / 2, domain[1]]} tickFormatter={axisNumber} axisLine={false} tickLine={false} height={26} />
         <YAxis allowDecimals={false} domain={[0, 'auto']} axisLine={false} tickLine={false} width={32} />
         <ReferenceLine x={0} stroke="var(--foreground)" strokeOpacity={0.6} strokeWidth={1} />
-        <Tooltip active={barHovered} cursor={false} shared={false} isAnimationActive={false} animationDuration={0} content={({ active, payload }) => {
-          const bin = payload?.[0]?.payload as DistributionBin | undefined;
-          return active && bin ? <div className="status-tooltip performance-histogram-tooltip"><strong>{binOutcome(bin, t)}</strong><span>{t('單筆淨損益區間')}</span><b className={bin.sign === 'flat' ? '' : bin.sign === 'profit' ? 'profit-value' : 'loss-value'}>{binRange(bin, group.currency, t)}</b><span>{t('這個金額區間有 {0} 筆交易', [bin.count])}</span><small>{t('占本組 {0} 筆交易的 {1}', [group.count, binShare(bin, group.count)])}</small></div> : null;
-        }} />
         <Bar dataKey="count" shape={<HistogramBar domain={domain} />} activeBar={false} isAnimationActive={false}>{bins.map(bin => <Cell key={bin.key} fill={bin.sign === 'profit' ? 'var(--profit-color)' : bin.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} />)}</Bar>
-        <PlotCrosshair cursor={cursor} />
+        <HistogramInteraction group={group} domain={domain} cursor={cursor} />
       </BarChart>
     </ResponsiveContainer>
   </div>;

@@ -7,10 +7,32 @@ export function bestDayShare(bestNet:number,dailyNetValues:number[]){
  return bestNet>0&&positiveDailyNet>0?Math.min(100,bestNet/positiveDailyNet*100):null;
 }
 export function holdingTimeBucket(minutes:number){
- const duration=Math.min(48*60,Math.max(0,minutes));
- return duration<60?Math.floor(duration/5)*5:Math.min(48*60,60+Math.floor((duration-60)/60)*60);
+ if(!Number.isFinite(minutes)||minutes<0)return null;
+ return minutes<60?Math.floor(minutes/5)*5:Math.floor(minutes/60)*60;
 }
 export function holdingTimeLabel(position:number){return position<60?`${position}–${position+5}m`:`${position/60}h`;}
+export type HoldingTimeStat={position:number;label:string;count:number;winRate:number};
+function holdingMillis(value:string,timezone?:string){
+ if(typeof value!=='string')return NaN;
+ const minute=value.slice(0,16),calendar=Date.parse(`${minute}:00Z`);
+ if(!Number.isFinite(calendar)||new Date(calendar).toISOString().slice(0,16)!==minute)return NaN;
+ const instant=utcMillis(value,timezone);
+ if(!Number.isFinite(instant))return NaN;
+ try{return convertWallTime(new Date(instant).toISOString().slice(0,16),'UTC',timezone??'Asia/Taipei')===minute?instant:NaN;}catch{return NaN;}
+}
+/** The caller supplies one entry-period/market/currency group; invalid holding times are absent. */
+export function holdingTimeStats(trades:Trade[]):HoldingTimeStat[]{
+ const groups=new Map<number,Trade[]>();
+ for(const trade of trades){
+  const entry=holdingMillis(trade.entryTime,trade.timezone),exit=holdingMillis(trade.exitTime,trade.timezone);
+  if(!Number.isFinite(entry)||!Number.isFinite(exit)||exit<entry)continue;
+  const position=holdingTimeBucket((exit-entry)/60000);
+  if(position===null)continue;
+  const rows=groups.get(position);
+  if(rows)rows.push(trade);else groups.set(position,[trade]);
+ }
+ return [...groups].sort((a,b)=>a[0]-b[0]).map(([position,rows])=>({position,label:holdingTimeLabel(position),count:rows.length,winRate:winRate(rows)}));
+}
 
 export const mistakeRules=[
  ['追價／FOMO',/追價|fomo|怕錯過|急著進場/i],['違反交易計畫',/違反|沒有遵守|未遵守|偏離計畫|計畫外/i],['停損執行',/移動停損|未設停損|沒有停損|不肯停損|扛單/i],['倉位過大',/倉位過大|部位過大|重倉|過度槓桿/i],['過度交易',/過度交易|頻繁交易|做太多|連續下單/i],['情緒交易',/情緒|報復交易|上頭|衝動/i],['過早進出',/太早進|過早進|太早出|過早出/i]
