@@ -179,8 +179,13 @@ export function strategyPerformanceStats(trades: Trade[], options: PerformanceOp
   });
 }
 
-export type DirectionMean = { count: number; meanNet: number | null };
+export type DirectionMean = { count: number; wins: number; winRate: number | null; net: number | null; meanNet: number | null };
 export type ProductDirectionStat = { market: PerformanceMarket; currency: Trade['currency']; symbol: string; long: DirectionMean; short: DirectionMean };
+export type ProductDirectionSummary = { market: PerformanceMarket; currency: Trade['currency']; count: number; long: DirectionMean; short: DirectionMean };
+
+function directionMean(count: number, wins: number, net: number): DirectionMean {
+  return { count, wins, winRate: count ? wins / count * 100 : null, net: count ? net : null, meanNet: count ? net / count : null };
+}
 
 export function productDirectionStats(trades: Trade[], options: PerformanceOptions = {}): ProductDirectionStat[] {
   return performanceGroups(trades, options).flatMap(({ market, currency, samples }) => {
@@ -192,9 +197,31 @@ export function productDirectionStats(trades: Trade[], options: PerformanceOptio
       if (!sides) { sides = { long: [], short: [] }; symbols.set(symbol, sides); }
       sides[trade.side].push(net);
     }
-    const mean = (values: number[]): DirectionMean => ({ count: values.length, meanNet: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null });
-    return [...symbols].sort(([a], [b]) => a.localeCompare(b)).map(([symbol, sides]) => ({ market, currency, symbol, long: mean(sides.long), short: mean(sides.short) }));
+    const mean = (values: number[]): DirectionMean => directionMean(values.length, values.filter(value => value > 0).length, values.reduce((sum, value) => sum + value, 0));
+    return [...symbols].map(([symbol, sides]) => ({ market, currency, symbol, long: mean(sides.long), short: mean(sides.short) }))
+      .sort((a, b) => (b.long.count + b.short.count) - (a.long.count + a.short.count) || a.symbol.localeCompare(b.symbol));
   });
+}
+
+/** Direction summaries weight every trade equally, including breakevens in the win-rate denominator. */
+export function productDirectionSummaryStats(rows: ProductDirectionStat[]): ProductDirectionSummary[] {
+  const groups = new Map<string, { market: PerformanceMarket; currency: Trade['currency']; long: { count: number; wins: number; net: number }; short: { count: number; wins: number; net: number } }>();
+  for (const row of rows) {
+    const key = `${row.market}|${row.currency}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { market: row.market, currency: row.currency, long: { count: 0, wins: 0, net: 0 }, short: { count: 0, wins: 0, net: 0 } };
+      groups.set(key, group);
+    }
+    for (const side of ['long', 'short'] as const) {
+      group[side].count += row[side].count;
+      group[side].wins += row[side].wins;
+      group[side].net += row[side].net ?? 0;
+    }
+  }
+  return [...groups.values()].sort((a, b) => a.market.localeCompare(b.market) || a.currency.localeCompare(b.currency))
+    .map(group => ({ market: group.market, currency: group.currency, count: group.long.count + group.short.count,
+      long: directionMean(group.long.count, group.long.wins, group.long.net), short: directionMean(group.short.count, group.short.wins, group.short.net) }));
 }
 
 export type NetPnlBin = { key: string; sign: 'loss' | 'flat' | 'profit'; min: number; max: number; count: number; minInclusive: boolean; maxInclusive: boolean };
@@ -213,18 +240,37 @@ export type NetPnlDistributionStat = {
 function sideBins(values: number[], sign: 'loss' | 'profit', maxSideBins: number): NetPnlBin[] {
   if (!values.length) return [];
   const extent = values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
-  const count = Math.min(maxSideBins, Math.ceil(Math.sqrt(values.length)));
-  const width = extent / count;
+  const targetCount = Math.min(maxSideBins, Math.ceil(Math.sqrt(values.length)));
+  const rawWidth = extent / targetCount;
+  const exponent = Math.floor(Math.log10(rawWidth));
+  const step = 10 ** exponent;
+  const widthUnits = Math.ceil(rawWidth / step);
+  let width = Number(`${widthUnits}e${exponent}`);
+  let count = Math.min(targetCount, Math.ceil(extent / width));
+  // Build decimal boundaries directly, avoiding repeated 0.1 + 0.1 style artifacts.
+  let edge = (multiple: number) => Number(`${multiple * widthUnits}e${exponent}`);
+  let extentUpper = edge(count);
+  if (!(width > 0) || !Number.isFinite(width) || !Number.isFinite(extentUpper) || extentUpper < extent) {
+    // Only extreme finite conversion values can underflow/overflow the readable step.
+    count = rawWidth > 0 ? targetCount : 1;
+    width = extent / count;
+    extentUpper = extent;
+    edge = (multiple: number) => Math.abs(multiple) === count ? Math.sign(multiple) * extentUpper : multiple * width;
+  }
   const bins = Array.from({ length: count }, (_, index): NetPnlBin => ({
     key: `${sign}-${index}`, sign,
-    min: sign === 'loss' ? -extent + index * width : index * width,
-    max: sign === 'loss' ? -extent + (index + 1) * width : (index + 1) * width,
+    min: edge(sign === 'loss' ? index - count : index),
+    max: edge(sign === 'loss' ? index + 1 - count : index + 1),
     count: 0, minInclusive: sign === 'loss', maxInclusive: sign === 'profit',
   }));
   // Loss bins are [min,max); profit bins are (min,max]. The zero bucket is independent.
   for (const value of values) {
-    const index = sign === 'loss' ? Math.floor((value + extent) / width) : Math.ceil(value / width) - 1;
-    bins[Math.min(count - 1, Math.max(0, index))].count++;
+    const estimatedIndex = sign === 'loss' ? Math.floor((value + extentUpper) / width) : Math.ceil(value / width) - 1;
+    let index = Math.min(count - 1, Math.max(0, estimatedIndex));
+    // Decimal division can land beside a boundary; actual comparisons keep inclusivity exact.
+    while (index > 0 && (value < bins[index].min || (value === bins[index].min && !bins[index].minInclusive))) index--;
+    while (index < count - 1 && (value > bins[index].max || (value === bins[index].max && !bins[index].maxInclusive))) index++;
+    bins[index].count++;
   }
   return bins;
 }

@@ -5,8 +5,10 @@ import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer,
 import { marketName, type Trade } from '@/lib/trades';
 import type { EnteredStrategyStats } from '@/lib/trade-status';
 import type { NetPnlDistributionStat, ProductDirectionStat, StrategyPerformanceGroup } from '@/lib/trade-performance';
+import { productDirectionSummaryStats } from '@/lib/trade-performance';
 import { useI18n } from './language-provider';
 import { Choice } from './trade-fields';
+import { PlotCrosshair, type PlotCursor } from './plot-crosshair';
 import './trade-performance.css';
 
 type Translate = (text: string, values?: unknown[]) => string;
@@ -65,7 +67,7 @@ function MoneyBar({ value, domain, currency, name, valueLabel, showAxis = false 
         <XAxis type="number" domain={domain} ticks={[domain[0], domain[0] / 2, 0, domain[1] / 2, domain[1]]} axisLine={false} tickLine={false} tickFormatter={axisNumber} hide={!showAxis} height={22} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
         <YAxis type="category" hide />
         <ReferenceLine x={0} stroke="var(--foreground)" strokeOpacity={0.55} strokeWidth={1} />
-        <Tooltip cursor={false} shared={false} content={({ active }) => active && value !== null ? <div className="status-tooltip"><strong>{name}</strong><span>{valueLabel}</span><b className={valueClass(value)}>{money(value)} {currency}</b></div> : null} />
+        <Tooltip cursor={false} shared={false} isAnimationActive={false} animationDuration={0} content={({ active }) => active && value !== null ? <div className="status-tooltip"><strong>{name}</strong><span>{valueLabel}</span><b className={valueClass(value)}>{money(value)} {currency}</b></div> : null} />
         <Bar dataKey="value" fill={valueColor(value)} barSize={13} radius={3} isAnimationActive={false} />
       </BarChart>
     </ResponsiveContainer>
@@ -142,24 +144,40 @@ export function ProductDirectionCharts({ groups, overall, originalGroups }: Grou
     bucket.push(row);
     grouped.set(key, bucket);
   }
+  const summaries = new Map(productDirectionSummaryStats(visible).map(row => [`${row.market}|${row.currency}`, row]));
   return <div className="performance-card-content">
     <div className="performance-toolbar"><ScopeSwitch value={scope} onChange={setScope} available={!!overall} t={t} /></div>
     {grouped.size === 0 ? <p className="status-empty">{t('所選期間尚無交易')}</p> : <div className="performance-group-grid">{[...grouped].map(([key, rows]) => {
       const first = rows[0];
+      const summary = summaries.get(key)!;
       const displayedRows = rows.slice(0, rowLimits.limit(key));
       const domain = signedDomain(rows.flatMap(row => [row.long.meanNet, row.short.meanNet]));
       return <section className="performance-group" key={key}>
         <header><h3>{groupLabel(first.market, t)} · {first.currency}</h3><span>{t('{0} 個商品', [rows.length])}</span></header>
+        <div className="performance-direction-summary">{(['long', 'short'] as const).map(side => {
+          const stat = summary[side];
+          return <section key={side}>
+            <header><strong>{t(side === 'long' ? '做多' : '做空')}</strong><span>{t('{0} 筆交易', [stat.count])}</span></header>
+            <dl>
+              <div><dt>{t('勝率')}</dt><dd>{stat.winRate === null ? '—' : `${number(stat.winRate)}%`}</dd></div>
+              <div><dt>{t('總淨損益')}</dt><dd className={valueClass(stat.net)}>{stat.net === null ? '—' : `${money(stat.net)} ${first.currency}`}</dd></div>
+              <div><dt>{t('平均每筆淨損益')}</dt><dd className={valueClass(stat.meanNet)}>{stat.meanNet === null ? '—' : `${money(stat.meanNet)} ${first.currency}`}</dd></div>
+            </dl>
+            {stat.count > 0 && stat.count < 5 && <small className="performance-sample-warning">{t('少量樣本')}</small>}
+          </section>;
+        })}</div>
+        <p className="performance-note">{t('勝率＝該方向獲利筆數 ÷ 該方向總筆數，打平交易也計入；各商品依總交易筆數由多到少排列。')}</p>
         <p className="performance-axis-title">{t('平均每筆淨損益（{0}）', [first.currency])}</p>
         <div className="performance-horizontal-list">{displayedRows.map((row, index) => <section className="performance-direction-product" key={row.symbol}>
-          <h4>{row.symbol}</h4>
+          <h4>{row.symbol}<span>{t('{0} 筆交易', [row.long.count + row.short.count])}</span></h4>
           {(['long', 'short'] as const).map(side => <div className="performance-direction-row" key={side}>
             <div className="performance-row-heading"><span>{t(side === 'long' ? '做多' : '做空')} <small>{t('{0} 筆交易', [row[side].count])}</small></span><b className={valueClass(row[side].meanNet)}>{row[side].meanNet === null ? '—' : `${money(row[side].meanNet)} ${row.currency}`}</b></div>
+            {row[side].winRate !== null && <div className="performance-row-meta"><span>{t('勝率 {0}%', [number(row[side].winRate!)])}</span></div>}
             <MoneyBar value={row[side].meanNet} domain={domain} currency={row.currency} name={`${row.symbol} · ${t(side === 'long' ? '做多' : '做空')}`} valueLabel={t('平均每筆淨損益')} showAxis={index === displayedRows.length - 1 && side === 'short'} />
           </div>)}
         </section>)}</div>
         <RowLimitControls shown={displayedRows.length} total={rows.length} onMore={() => rowLimits.more(key)} onCollapse={() => rowLimits.collapse(key)} />
-        <DataTable caption={`${t('商品方向績效')} · ${groupLabel(first.market, t)} · ${first.currency}`} headings={[t('商品'), t('方向'), t('交易筆數'), t('平均每筆淨損益')]} rows={rows.flatMap(row => (['long', 'short'] as const).map(side => [row.symbol, t(side === 'long' ? '做多' : '做空'), row[side].count, row[side].meanNet === null ? '—' : `${money(row[side].meanNet)} ${row.currency}`]))} />
+        <DataTable caption={`${t('商品方向績效')} · ${groupLabel(first.market, t)} · ${first.currency}`} headings={[t('商品'), t('方向'), t('交易筆數'), t('勝率'), t('總淨損益'), t('平均每筆淨損益')]} rows={rows.flatMap(row => (['long', 'short'] as const).map(side => [row.symbol, t(side === 'long' ? '做多' : '做空'), row[side].count, row[side].winRate === null ? '—' : `${number(row[side].winRate!)}%`, row[side].net === null ? '—' : `${money(row[side].net)} ${row.currency}`, row[side].meanNet === null ? '—' : `${money(row[side].meanNet)} ${row.currency}`]))} />
       </section>;
     })}</div>}
     {originalGroups?.length ? <DataTable caption={t('原幣別商品方向績效')} headings={[t('市場'), t('幣別'), t('商品'), t('方向'), t('交易筆數'), t('平均每筆淨損益')]} rows={originalGroups.flatMap(row => (['long', 'short'] as const).map(side => [groupLabel(row.market, t), row.currency, row.symbol, t(side === 'long' ? '做多' : '做空'), row[side].count, money(row[side].meanNet)]))} /> : null}
@@ -172,11 +190,52 @@ function HistogramBar({ y = 0, height = 0, payload, domain }: { x?: number; y?: 
   const left = area.x + (payload.min - domain[0]) / (domain[1] - domain[0]) * area.width;
   const right = area.x + (payload.max - domain[0]) / (domain[1] - domain[0]) * area.width;
   const width = payload.sign === 'flat' ? 6 : Math.max(1, right - left - 2);
-  return <rect x={payload.sign === 'flat' ? left - 3 : left + 1} y={y} width={width} height={height} fill={payload.sign === 'profit' ? 'var(--profit-color)' : payload.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} rx={2} />;
+  return <rect className="performance-histogram-bar" x={payload.sign === 'flat' ? left - 3 : left + 1} y={y} width={width} height={height} fill={payload.sign === 'profit' ? 'var(--profit-color)' : payload.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} rx={2} />;
 }
 
 function binRange(bin: DistributionBin, currency: string, t: Translate) {
-  return bin.sign === 'flat' ? `${t('打平')} · 0 ${currency}` : `${bin.minInclusive ? '[' : '('}${number(bin.min)}, ${number(bin.max)}${bin.maxInclusive ? ']' : ')'} ${currency}`;
+  if (bin.sign === 'flat') return t('0 {0}（打平）', [currency]);
+  const boundary = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: value === 0 ? 2 : Math.min(20, Math.max(2, 1 - Math.floor(Math.log10(Math.abs(value))))) });
+  const lower = boundary(bin.min);
+  const upper = boundary(bin.max);
+  if (bin.minInclusive && bin.maxInclusive) return t('{0} 至 {1} {2}（含兩端）', [lower, upper, currency]);
+  if (bin.minInclusive) return t('{0} 至未滿 {1} {2}', [lower, upper, currency]);
+  if (bin.maxInclusive) return t('超過 {0} 至 {1} {2}', [lower, upper, currency]);
+  return t('超過 {0}、未滿 {1} {2}', [lower, upper, currency]);
+}
+
+const binOutcome = (bin: DistributionBin, t: Translate) => t(bin.sign === 'loss' ? '虧損交易' : bin.sign === 'profit' ? '獲利交易' : '打平交易');
+const binShare = (bin: DistributionBin, count: number) => `${number(count > 0 ? bin.count / count * 100 : 0)}%`;
+
+function NetPnlHistogram({ group }: { group: NetPnlDistributionStat }) {
+  const { t } = useI18n();
+  const [cursor, setCursor] = useState<PlotCursor>(null);
+  const [barHovered, setBarHovered] = useState(false);
+  const domain = signedDomain(group.bins.flatMap(bin => [bin.min, bin.max]));
+  const bins = group.bins.map(bin => ({ ...bin, midpoint: (bin.min + bin.max) / 2 }));
+  return <div className="status-chart performance-histogram" role="img" aria-label={t('單筆淨損益分布（{0}）', [groupLabel(group.market, t)])}
+    onPointerMove={event => {
+      const box = event.currentTarget.getBoundingClientRect();
+      setCursor({ x: event.clientX - box.left, y: event.clientY - box.top });
+      setBarHovered(event.target instanceof Element && !!event.target.closest('.performance-histogram-bar'));
+    }}
+    onPointerLeave={() => { setCursor(null); setBarHovered(false); }}
+    onFocusCapture={() => setBarHovered(true)} onBlurCapture={() => setBarHovered(false)}>
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={bins} margin={{ top: 10, right: 12, bottom: 4, left: 0 }} accessibilityLayer={false}>
+        <CartesianGrid vertical={false} />
+        <XAxis type="number" dataKey="midpoint" domain={domain} ticks={[domain[0], domain[0] / 2, 0, domain[1] / 2, domain[1]]} tickFormatter={axisNumber} axisLine={false} tickLine={false} height={26} />
+        <YAxis allowDecimals={false} domain={[0, 'auto']} axisLine={false} tickLine={false} width={32} />
+        <ReferenceLine x={0} stroke="var(--foreground)" strokeOpacity={0.6} strokeWidth={1} />
+        <Tooltip active={barHovered} cursor={false} shared={false} isAnimationActive={false} animationDuration={0} content={({ active, payload }) => {
+          const bin = payload?.[0]?.payload as DistributionBin | undefined;
+          return active && bin ? <div className="status-tooltip performance-histogram-tooltip"><strong>{binOutcome(bin, t)}</strong><span>{t('單筆淨損益區間')}</span><b className={bin.sign === 'flat' ? '' : bin.sign === 'profit' ? 'profit-value' : 'loss-value'}>{binRange(bin, group.currency, t)}</b><span>{t('這個金額區間有 {0} 筆交易', [bin.count])}</span><small>{t('占本組 {0} 筆交易的 {1}', [group.count, binShare(bin, group.count)])}</small></div> : null;
+        }} />
+        <Bar dataKey="count" shape={<HistogramBar domain={domain} />} activeBar={false} isAnimationActive={false}>{bins.map(bin => <Cell key={bin.key} fill={bin.sign === 'profit' ? 'var(--profit-color)' : bin.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} />)}</Bar>
+        <PlotCrosshair cursor={cursor} />
+      </BarChart>
+    </ResponsiveContainer>
+  </div>;
 }
 
 export function NetPnlDistributionCharts({ groups, overall, originalGroups }: GroupProps<NetPnlDistributionStat>) {
@@ -186,32 +245,21 @@ export function NetPnlDistributionCharts({ groups, overall, originalGroups }: Gr
   return <div className="performance-card-content">
     <div className="performance-toolbar"><ScopeSwitch value={scope} onChange={setScope} available={!!overall} t={t} /></div>
     {visible.length === 0 ? <p className="status-empty">{t('所選期間尚無交易')}</p> : <div className="performance-group-grid">{visible.map(group => {
-      const domain = signedDomain(group.bins.flatMap(bin => [bin.min, bin.max]));
-      const bins = group.bins.map(bin => ({ ...bin, midpoint: (bin.min + bin.max) / 2 }));
       return <section className="performance-group" key={`${group.market}|${group.currency}`}>
         <header><h3>{groupLabel(group.market, t)} · {group.currency}</h3><span>{t('{0} 筆交易', [group.count])}</span></header>
-        <div className="performance-distribution-summary">{([['中位數', group.median], ['平均值', group.mean], ['最大單筆獲利', group.maxProfit], ['最大單筆虧損', group.maxLoss]] as const).map(([label, value]) => <div key={label}><span>{t(label)}</span><strong className={valueClass(value)}>{value === null ? '—' : `${money(value)} ${group.currency}`}</strong></div>)}</div>
-        <div className="analytics-horizontal-axis-labels performance-distribution-labels"><span>{t('交易筆數')}</span><span>{t('單筆淨損益（{0}）', [group.currency])}</span></div>
-        <div className="status-chart performance-histogram" role="img" aria-label={t('單筆淨損益分布（{0}）', [groupLabel(group.market, t)])}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={bins} margin={{ top: 10, right: 12, bottom: 4, left: 0 }} accessibilityLayer={false}>
-              <CartesianGrid vertical={false} />
-              <XAxis type="number" dataKey="midpoint" domain={domain} ticks={[domain[0], domain[0] / 2, 0, domain[1] / 2, domain[1]]} tickFormatter={axisNumber} axisLine={false} tickLine={false} height={26} />
-              <YAxis allowDecimals={false} domain={[0, 'auto']} axisLine={false} tickLine={false} width={32} />
-              <ReferenceLine x={0} stroke="var(--foreground)" strokeOpacity={0.6} strokeWidth={1} />
-              <Tooltip cursor={false} shared={false} content={({ active, payload }) => {
-                const bin = payload?.[0]?.payload as DistributionBin | undefined;
-                return active && bin ? <div className="status-tooltip"><strong>{binRange(bin, group.currency, t)}</strong><span>{t('{0} 筆交易', [bin.count])}</span></div> : null;
-              }} />
-              <Bar dataKey="count" shape={<HistogramBar domain={domain} />} isAnimationActive={false}>{bins.map(bin => <Cell key={bin.key} fill={bin.sign === 'profit' ? 'var(--profit-color)' : bin.sign === 'loss' ? 'var(--loss-color)' : 'var(--muted-foreground)'} />)}</Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <div className="performance-distribution-summary">{([['單筆淨損益中位數', group.median], ['平均每筆淨損益', group.mean], ['最大單筆獲利', group.maxProfit], ['最大單筆虧損', group.maxLoss]] as const).map(([label, value]) => <div key={label}><span>{t(label)}</span><strong className={valueClass(value)}>{value === null ? '—' : `${money(value)} ${group.currency}`}</strong></div>)}</div>
+        <p className="performance-histogram-guide">{t('每根柱子代表一個金額區間；柱子越高，落在該區間的交易越多。')}</p>
+        <div className="analytics-horizontal-axis-labels performance-distribution-labels"><span>{t('柱高：交易筆數')}</span></div>
+        <NetPnlHistogram group={group} />
+        <p className="performance-histogram-x-title">{t('橫軸：單筆淨損益（{0}）', [group.currency])}</p>
+        <p className="performance-histogram-direction">{t('零線左側是虧損，右側是獲利；0 代表打平。')}</p>
         <div className="analytics-chart-legend performance-distribution-legend"><span><i className="loss-legend" />{t('虧損交易')}</span><span><i className="performance-flat-legend" />{t('打平交易')}</span><span><i className="profit-legend" />{t('獲利交易')}</span></div>
-        <DataTable caption={`${t('單筆淨損益分布')} · ${groupLabel(group.market, t)} · ${group.currency}`} headings={[t('淨損益區間'), t('交易筆數')]} rows={group.bins.map(bin => [binRange(bin, group.currency, t), bin.count])} />
+        <DataTable caption={`${t('每個金額區間的交易筆數')} · ${groupLabel(group.market, t)} · ${group.currency}`} headings={[t('交易結果'), t('單筆淨損益區間'), t('區間內交易筆數'), t('占本組交易比例')]} rows={group.bins.map(bin => [binOutcome(bin, t), binRange(bin, group.currency, t), bin.count, binShare(bin, group.count)])} />
+        <p className="performance-note">{t('表格中的筆數是落在該金額區間的交易數量；比例以本組全部 {0} 筆交易為分母，包含打平交易。', [group.count])}</p>
+        <p className="performance-note">{t('中位數是將單筆損益由低到高排列後的中間值；平均每筆淨損益是總淨損益除以交易筆數。')}</p>
       </section>;
     })}</div>}
-    <p className="performance-note">{t('以單筆已實現淨損益分箱；零值獨立列為打平交易。')}</p>
+    <p className="performance-note">{t('使用每筆已平倉交易的淨損益，按金額區間統計筆數；這不是累積損益圖。')}</p>
     {originalGroups?.length ? <DataTable caption={t('原幣別損益分布摘要')} headings={[t('市場'), t('幣別'), t('交易筆數'), t('中位數'), t('平均值'), t('最大單筆獲利'), t('最大單筆虧損')]} rows={originalGroups.map(group => [groupLabel(group.market, t), group.currency, group.count, money(group.median), money(group.mean), money(group.maxProfit), money(group.maxLoss)])} /> : null}
   </div>;
 }

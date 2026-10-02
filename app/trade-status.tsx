@@ -1,7 +1,8 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, BarChart3, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Target, TrendingUp, Users } from 'lucide-react';
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis, usePlotArea } from 'recharts';
+import { Bar, CartesianGrid, Cell, ComposedChart, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts';
+import { PlotCrosshair } from './plot-crosshair';
 import { useI18n } from './language-provider';
 import ConvertedMoney from './converted-money';
 import CryptoQuoteSourceSelect, { useCryptoQuoteSource } from './crypto-quote-source';
@@ -425,10 +426,6 @@ function MaeMfePerformance({rows,t,baseCurrency,rates,now}:{rows:MaeMfeRow[];t:(
  return <div className="excursion-performance"><header><h3>{t('最大浮盈／浮虧金額與出現時間')}</h3><InfoTooltip label={t('浮盈保留與時間說明')} contentClassName="factor-help-wide"><p>{t('極值金額依每筆交易分別顯示；只有 MAE 或 MFE 時，另一側保留空值。手動值優先，沒有可驗證時間時只顯示金額。')}</p><p>{t('極值時間僅表示參考 K 線所在區間，不是精確發生分鐘。粗週期可能含進場前或出場後的價格，區間可能跨越持倉邊界；手動值或缺少時間資料顯示橫線。')}</p></InfoTooltip></header><details className="excursion-timing" open><summary>{t('最大浮盈／浮虧出現時間')}</summary><div className="excursion-timing-table" tabIndex={0} role="region" aria-label={t('最大浮盈／浮虧金額與出現時間')}><div className="excursion-timing-row"><strong>{t('商品 / 市場')}</strong><strong>{t('最大浮盈 MFE')} · {t('金額與區間')}</strong><strong>{t('最大浮虧 MAE')} · {t('金額與區間')}</strong></div>{rows.slice().sort((a,b)=>a.entryTime.localeCompare(b.entryTime)).map(row=>{const display=chartCurrency(row.currency,baseCurrency,rates,now);return <div className="excursion-timing-row" key={row.id}><span>{row.symbol}<small>{t(marketName(row.market))} · {row.entryTime.replace('T',' ')}</small></span><span><b className={row.mfe===null?'':'profit-value'}>{row.mfe===null?'—':fmt(row.mfe)+' '+row.currency}</b>{row.mfe!==null&&display.currency!==row.currency&&<small className="profit-value">{fmt(row.mfe*display.factor)} {display.currency}</small>}<small>{timeText(row.mfeTime,row.timeframe)}</small></span><span><b className={row.mae===null?'':'loss-value'}>{row.mae===null?'—':fmt(row.mae)+' '+row.currency}</b>{row.mae!==null&&display.currency!==row.currency&&<small className="loss-value">{fmt(row.mae*display.factor)} {display.currency}</small>}<small>{timeText(row.maeTime,row.timeframe)}</small></span></div>;})}</div></details></div>;
 }
 type MaeMfePoint={time?:ExcursionTime|null;sizeBasis?:string;referenceSymbol?:string;productType?:string;index:number;value:number;metric:MaeMfeMetric;symbol:string;entryTime:string;currency:string;originalCurrency:string;candleCount:number;source:'manual'|'exchange'|'actual';provider:string;timeframe?:string;displayFactor:number};
-function PlotCrosshair({cursor}:{cursor:{x:number;y:number}|null}){
- const area=usePlotArea();if(!area||!cursor||cursor.x<area.x||cursor.x>area.x+area.width||cursor.y<area.y||cursor.y>area.y+area.height)return null;
- return <g className="analytics-crosshair" pointerEvents="none" aria-hidden="true"><line x1={cursor.x} x2={cursor.x} y1={area.y} y2={area.y+area.height}/><line x1={area.x} x2={area.x+area.width} y1={cursor.y} y2={cursor.y}/></g>;
-}
 function MaeMfeScatter({rows,currency,t,emptyText}:{rows:MaeMfeRow[];currency:string;t:(text:string,values?:unknown[])=>string;emptyText?:string}){
  const [cursor,setCursor]=useState<{x:number;y:number}|null>(null);
  const [pointHovered,setPointHovered]=useState(false);

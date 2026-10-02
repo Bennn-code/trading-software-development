@@ -14,7 +14,7 @@ for (const name of ['trades', 'display-currency', 'trade-status', 'trade-perform
   fs.writeFileSync(path.join(outputDirectory, `${name}.cjs`), source);
 }
 const require = createRequire(path.join(outputDirectory, 'runner.cjs'));
-const { settledPerformanceTrades, realizedDrawdownStats, strategyPerformanceStats, productDirectionStats, netPnlDistributionStats } = require('./trade-performance.cjs');
+const { settledPerformanceTrades, realizedDrawdownStats, strategyPerformanceStats, productDirectionStats, productDirectionSummaryStats, netPnlDistributionStats } = require('./trade-performance.cjs');
 const { pnl } = require('./trades.cjs');
 
 const trade = (id, netOverride, changes = {}) => ({
@@ -147,9 +147,44 @@ assert.equal(realizedDrawdownStats(decimalRecovery, asOf)[0].currentRecoveryMinu
 
 const byDirection = productDirectionStats([trade('long-win', 10), trade('long-loss', -4, { symbol: 'btcusdt' }), trade('short', -9, { side: 'short' }), trade('only-long', 0, { symbol: 'ETHUSDT' })]);
 const btc = byDirection.find(row => row.symbol === 'BTCUSDT');
-assert.deepEqual(btc.long, { count: 2, meanNet: 3 });
-assert.deepEqual(btc.short, { count: 1, meanNet: -9 });
-assert.deepEqual(byDirection.find(row => row.symbol === 'ETHUSDT').short, { count: 0, meanNet: null }, 'missing direction is unavailable rather than zero');
+assert.deepEqual(btc.long, { count: 2, wins: 1, winRate: 50, net: 6, meanNet: 3 });
+assert.deepEqual(btc.short, { count: 1, wins: 0, winRate: 0, net: -9, meanNet: -9 });
+assert.deepEqual(byDirection.find(row => row.symbol === 'ETHUSDT').short, { count: 0, wins: 0, winRate: null, net: null, meanNet: null }, 'missing direction is unavailable rather than zero');
+assert.deepEqual(productDirectionSummaryStats([]), []);
+
+const weightedDirectionTrades = [
+  ...[20, -1, -1, -1, -1, -1, -1, -1, 0].map((net, index) => trade(`btc-${index}`, net)),
+  trade('eth', 7, { symbol: 'ETHUSDT' }),
+  trade('btc-short-win', 9, { side: 'short' }),
+  trade('eth-short-flat', 0, { symbol: 'ETHUSDT', side: 'short' }),
+  trade('aaa-tie', -2, { symbol: 'AAAUSDT' }),
+  trade('zzz-tie', 2, { symbol: 'ZZZUSDT' }),
+  trade('invalid-direction', 999, { symbol: 'BTCUSDT', side: 'unknown' }),
+];
+const weightedRows = productDirectionStats(weightedDirectionTrades);
+assert.deepEqual(weightedRows.map(row => row.symbol), ['BTCUSDT', 'ETHUSDT', 'AAAUSDT', 'ZZZUSDT'], 'products rank by both-direction trade count, with deterministic symbol ties');
+assert.deepEqual(productDirectionStats(weightedDirectionTrades.toReversed()), weightedRows, 'product order and figures do not depend on input order');
+const weightedSummary = productDirectionSummaryStats(weightedRows)[0];
+assert.equal(weightedSummary.count, 14, 'only trades with a known direction enter this summary');
+assert.deepEqual(weightedSummary.long, { count: 12, wins: 3, winRate: 25, net: 20, meanNet: 20 / 12 }, 'direction wins and net outcomes are pooled before averaging; breakevens count but are not wins');
+assert.deepEqual(weightedSummary.short, { count: 2, wins: 1, winRate: 50, net: 9, meanNet: 4.5 });
+assert.deepEqual(productDirectionSummaryStats(weightedRows.toReversed()), [weightedSummary]);
+const longOnlySummary = productDirectionSummaryStats(productDirectionStats([trade('long-flat', 0)]))[0];
+assert.deepEqual(longOnlySummary.long, { count: 1, wins: 0, winRate: 0, net: 0, meanNet: 0 }, 'a traded flat direction is available with zero net and zero wins');
+assert.deepEqual(longOnlySummary.short, { count: 0, wins: 0, winRate: null, net: null, meanNet: null }, 'untraded direction stays unavailable in market summaries');
+const isolatedSummaries = productDirectionSummaryStats(productDirectionStats(mixed));
+assert.equal(isolatedSummaries.length, 3, 'direction summaries never combine different markets or currencies');
+assert.equal(isolatedSummaries.find(row => row.market === 'crypto' && row.currency === 'USDT').long.net, 10);
+assert.equal(isolatedSummaries.find(row => row.market === 'crypto' && row.currency === 'USD').long.net, 20);
+assert.equal(isolatedSummaries.find(row => row.market === 'us-stocks' && row.currency === 'USD').long.net, -8);
+const pooledUsdSummary = productDirectionSummaryStats(productDirectionStats(converted, { combineMarkets: true }))[0];
+assert.equal(pooledUsdSummary.market, 'all');
+assert.equal(pooledUsdSummary.currency, 'USD');
+assert.equal(pooledUsdSummary.long.net, 21.9, 'explicit conversion precedes the summary aggregation');
+assert.equal(pooledUsdSummary.long.meanNet, 7.3);
+const preciseDirectionSummary = productDirectionSummaryStats(productDirectionStats(smallConversion, precisionOptions))[0];
+assert.equal(preciseDirectionSummary.long.net, 0.012, 'sub-cent converted direction totals retain precision until display');
+assert.equal(preciseDirectionSummary.long.meanNet, 0.004);
 
 const distribution = netPnlDistributionStats([-100, -10, -1, 0, 0, 1, 10, 50].map((net, index) => trade(String(index), net)))[0];
 assert.equal(distribution.count, 8);
@@ -172,6 +207,24 @@ assert.equal(netPnlDistributionStats([trade('a', 1), trade('b', 4), trade('c', 1
 assert.equal(netPnlDistributionStats([trade('a', 1), trade('b', 4)])[0].median, 2.5);
 const exactEdges = netPnlDistributionStats([-4, -2, 2, 4].map((net, index) => trade(String(index), net)), { maxSideBins: 2 })[0];
 assert.deepEqual(exactEdges.bins.map(bin => bin.count), [1, 1, 1, 1], 'boundary values do not enter adjacent bins twice');
+const readableValues = [-160, -120, -60, -1, -10, -20, -100, -50, -30, 160, 120, 60, 1, 10, 20, 100, 50, 30, 0];
+const readableBins = netPnlDistributionStats(readableValues.map((net, index) => trade(`readable-${index}`, net)))[0].bins;
+assert.deepEqual(readableBins.map(bin => [bin.min, bin.max]), [[-180, -120], [-120, -60], [-60, 0], [0, 0], [0, 60], [60, 120], [120, 180]], 'readable width rounds 53.333… up to 60 and extends the outer bounds to include the actual extrema');
+assert.deepEqual(readableBins.map(bin => bin.count), [1, 2, 6, 1, 6, 2, 1], 'padded loss ranges use the padded extent; each exact edge is assigned according to its inclusivity');
+assert.equal(readableBins.reduce((sum, bin) => sum + bin.count, 0), readableValues.length);
+const decimalEdges = [-0.8, -0.6, -0.4, -0.2, 0.2, 0.4, 0.6, 0.8];
+const decimalBins = netPnlDistributionStats(decimalEdges.map((net, index) => trade(`decimal-${index}`, net)), { maxSideBins: 4 })[0].bins;
+assert.deepEqual(decimalBins.map(bin => [bin.min, bin.max]), [[-0.8, -0.4], [-0.4, 0], [0, 0.4], [0.4, 0.8]], 'decimal monetary ranges stay readable rather than exposing binary arithmetic tails');
+assert.deepEqual(decimalBins.map(bin => bin.count), [2, 2, 2, 2]);
+const paddedCountLimited = netPnlDistributionStats(readableValues.map((net, index) => trade(`limited-${index}`, net)), { maxSideBins: 1 })[0].bins;
+assert.equal(paddedCountLimited.filter(bin => bin.sign === 'loss').length, 1);
+assert.equal(paddedCountLimited.filter(bin => bin.sign === 'profit').length, 1);
+assert.equal(paddedCountLimited.reduce((sum, bin) => sum + bin.count, 0), readableValues.length, 'readable padding never increases the requested side-bin limit or drops trades');
+for (const net of [Number.MIN_VALUE, Number.MAX_VALUE]) {
+  const extremeDistribution = netPnlDistributionStats([trade('finite-extreme', net), trade('finite-extreme-loss', -net)], { readNetOverride: true })[0];
+  assert.equal(extremeDistribution.bins.reduce((sum, bin) => sum + bin.count, 0), 2, 'finite conversion values outside readable-step range still enter exactly one bin');
+  assert.ok(extremeDistribution.bins.every(bin => Number.isFinite(bin.min) && Number.isFinite(bin.max)));
+}
 
 const feeTrade = trade('fees', 12, { profitBasis: 'gross', fees: 2, commission: 1, funding: -0.5 });
 assert.equal(pnl(feeTrade), 9.5);

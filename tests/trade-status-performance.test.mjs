@@ -97,7 +97,57 @@ try {
   assert.ok(!cutoffDirection.includes('FUTUREUSDT'), 'direction card uses the same observation cutoff');
   assert.ok(text(cutoffDistribution).includes('1 筆交易'), 'the distribution shares the summary cutoff');
   assert.ok(!text(cutoffDistribution).includes('+999 USDT'));
-  console.log('Passed real TradeStatus SSR integration: favorite ids/filtering, no duplicate summary, manual-vs-history coverage, single-side amounts/intervals, canonical timezone/day cutoff, native net precision and future settlement exclusion.');
+
+  const directionTrades = [];
+  const addDirection = (symbol, side, outcomes, overrides = {}) => outcomes.forEach((netOverride, index) => directionTrades.push({
+    ...base, id: symbol + '-' + side + '-' + index, symbol, side, netOverride, ...overrides,
+  }));
+  addDirection('ZETAUSDT', 'long', [-120, -60, -30, -20, -10, 0, 160]);
+  addDirection('ZETAUSDT', 'short', [90, -15]);
+  addDirection('BTCUSDT', 'long', [20, 40]);
+  addDirection('BTCUSDT', 'short', [-25]);
+  addDirection('ALPHAUSDT', 'long', [0]);
+  addDirection('ALPHAUSDT', 'short', [35]);
+  const directions = render(directionTrades, ['product-direction']);
+  const directionSummary = (html, side) => {
+    const match = html.match(new RegExp('<section><header><strong>' + side + '</strong>([\\s\\S]*?)</section>'));
+    assert.ok(match, 'real card contains an explicit ' + side + ' market summary');
+    return match[1];
+  };
+  const longSummary = directionSummary(directions, '做多');
+  const shortSummary = directionSummary(directions, '做空');
+  assert.ok(longSummary.includes('10 筆交易'));
+  assert.ok(longSummary.includes('<dt>勝率</dt><dd>30%</dd>'), 'three profitable long trades out of ten are pooled, including two breakevens');
+  assert.ok(longSummary.includes('<dt>總淨損益</dt><dd class="loss-value">-20 USDT</dd>'));
+  assert.ok(longSummary.includes('<dt>平均每筆淨損益</dt><dd class="loss-value">-2 USDT</dd>'));
+  assert.ok(shortSummary.includes('4 筆交易'));
+  assert.ok(shortSummary.includes('<dt>勝率</dt><dd>50%</dd>'));
+  assert.ok(shortSummary.includes('<dt>總淨損益</dt><dd class="profit-value">+85 USDT</dd>'));
+  assert.ok(shortSummary.includes('<dt>平均每筆淨損益</dt><dd class="profit-value">+21.25 USDT</dd>'));
+  const headings = [...directions.matchAll(/<h4>([^<]+)<span>/g)].map(match => match[1]);
+  assert.deepEqual(headings, ['ZETAUSDT', 'BTCUSDT', 'ALPHAUSDT'], 'actual displayed product order is descending total trade count, not alphabetical');
+  assert.ok(text(directions).includes('打平交易也計入'), 'the win-rate denominator is explained in the card');
+  const longOnly = directionSummary(render([{ ...base, id: 'long-only', netOverride: 0 }], ['product-direction']), '做空');
+  assert.ok(longOnly.includes('0 筆交易'));
+  assert.ok(longOnly.includes('<dt>勝率</dt><dd>—</dd>'));
+  assert.ok(longOnly.includes('<dt>總淨損益</dt><dd class="">—</dd>'), 'an untraded direction is unavailable rather than invented zero profit');
+  const isolatedDirections = render([...directionTrades, { ...base, id: 'usd-separate', market: 'us-stocks', currency: 'USD', symbol: 'AAPL', netOverride: 200 }], ['product-direction']);
+  assert.ok(directionSummary(isolatedDirections, '做多').includes('-20 USDT'), 'a different market/currency does not inflate the crypto summary');
+  assert.ok(text(isolatedDirections).includes('+200 USD'));
+
+  const distributionTrades = [-4, -2, 0, 0, 2, 4].map((netOverride, index) => ({ ...base, id: 'range-' + index, netOverride }));
+  const clearDistribution = render(distributionTrades, ['pnl-distribution']);
+  const distributionTable = clearDistribution.match(/<table class="performance-data-table">([\s\S]*?)<\/table>/)?.[1];
+  assert.ok(distributionTable, 'the real distribution card offers its accessible data table');
+  for (const heading of ['交易結果', '單筆淨損益區間', '區間內交易筆數', '占本組交易比例']) assert.ok(distributionTable.includes(heading));
+  for (const rangeText of ['-4 至未滿 -2 USDT', '-2 至未滿 0 USDT', '0 USDT（打平）', '超過 0 至 2 USDT', '超過 2 至 4 USDT']) assert.ok(distributionTable.includes(rangeText), 'natural-language range includes the exact endpoint meaning: ' + rangeText);
+  assert.ok(!distributionTable.includes('[-') && !distributionTable.includes('(0,'), 'the table no longer requires reading mathematical interval brackets');
+  assert.ok(distributionTable.includes('<th scope="row">打平交易</th><td>0 USDT（打平）</td><td>2</td><td>33.33%</td>'), 'breakeven count and percentage use all six trades as the denominator');
+  assert.ok(text(clearDistribution).includes('柱高：交易筆數'));
+  assert.ok(text(clearDistribution).includes('橫軸：單筆淨損益（USDT）'));
+  assert.ok(text(clearDistribution).includes('每根柱子代表一個金額區間；柱子越高，落在該區間的交易越多。'));
+  assert.ok(text(clearDistribution).includes('這不是累積損益圖'), 'the histogram is distinguished from cumulative P&L');
+  console.log('Passed real TradeStatus SSR integration: favorite ids/filtering, no duplicate summary, manual-vs-history coverage, single-side amounts/intervals, canonical timezone/day cutoff, native net precision/future exclusion, weighted direction summaries/count ordering and readable histogram boundaries/denominators.');
 } finally {
   Date.now = originalNow;
 }
